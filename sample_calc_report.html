@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Residential roof - hip girder - B1 - Beam Design Calculation</title>
+<style>
+  @page { size: A4 portrait; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body { font: 11px/1.45 "Segoe UI", Arial, sans-serif; color: #111; margin: 0; }
+  h1 { font-size: 17px; margin: 0 0 2px; }
+  h2 { font-size: 13px; margin: 18px 0 6px; padding-bottom: 3px;
+       border-bottom: 1.5px solid #333; page-break-after: avoid; }
+  h3 { font-size: 11.5px; margin: 12px 0 4px; page-break-after: avoid; }
+  .hdr { border: 1px solid #333; padding: 8px 10px; margin-bottom: 4px; }
+  .hdr .row { display: flex; justify-content: space-between; gap: 12px; }
+  .muted { color: #555; }
+  table { border-collapse: collapse; width: 100%; margin: 6px 0 10px;
+          page-break-inside: avoid; }
+  th, td { border: 1px solid #bbb; padding: 3px 6px; text-align: left;
+           vertical-align: top; }
+  th { background: #eee; font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pass { color: #096b1f; font-weight: 700; }
+  .fail { color: #b40000; font-weight: 700; }
+  .check { border: 1px solid #999; padding: 7px 9px; margin: 7px 0;
+           page-break-inside: avoid; }
+  .check .title { font-weight: 700; }
+  .formula { font-family: "Cascadia Mono", Consolas, monospace; font-size: 10.5px;
+             background: #f6f6f6; padding: 4px 6px; margin: 4px 0; white-space: pre-wrap; }
+  .warn { border-left: 3px solid #c47f00; background: #fff8e8; padding: 6px 9px;
+          margin: 5px 0; page-break-inside: avoid; }
+  .verify { border: 1.5px solid #b40000; background: #fff2f2; padding: 8px 10px;
+            margin: 10px 0; }
+  footer { margin-top: 18px; border-top: 1px solid #999; padding-top: 5px;
+           font-size: 9.5px; color: #555; }
+  .sig { margin-top: 20px; display: flex; gap: 28px; }
+  .sig div { flex: 1; border-top: 1px solid #333; padding-top: 3px; font-size: 10px; }
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="row"><h1>Beam Design Calculation</h1><div>2026-08-04</div></div>
+  <div class="row muted">
+    <div><b>Project:</b> Residential roof - hip girder</div>
+    <div><b>Member:</b> B1</div>
+    <div><b>By:</b> N. Thapa</div>
+  </div>
+  <div class="row muted">
+    <div><b>Code:</b> OBC 2024 Div. B Part 4 / NBC 2020 / CSA O86-19</div>
+    <div><b>Result:</b>
+      <span class="pass">
+        PASS - governing ratio 0.88
+      </span>
+    </div>
+  </div>
+</div>
+
+<h2>1. Member and materials</h2>
+<table>
+  <tr><th style="width:32%">Section</th><td>2-ply 1 3/4&#34; x 14&#34; Microllam LVL 2.0E (89 x 356 mm)</td></tr>
+  <tr><th>Overall width x depth</th><td>89 x 356 mm (2 ply)</td></tr>
+  <tr><th>Material</th><td>Microllam LVL 2.0E</td></tr>
+  <tr><th>Property source</th><td>Weyerhaeuser Trus Joist TJ-9500 (E. Canada, Feb 2026), Design Properties p.5</td></tr>
+  <tr><th>Section modulus S</th><td>1874 x 10<sup>3</sup> mm<sup>3</sup></td></tr>
+  <tr><th>Moment of inertia I</th><td>333.1 x 10<sup>6</sup> mm<sup>4</sup></td></tr>
+  <tr><th>Gross area A</th><td>31.61 x 10<sup>3</sup> mm<sup>2</sup></td></tr>
+  <tr><th>Self weight</th><td>0.208 kN/m (included)</td></tr>
+</table>
+
+
+
+<h2>2. Geometry and loads</h2>
+<table>
+  <tr><th style="width:32%">Spans</th><td>5.486 m (18.00 ft) + 3.658 m (12.00 ft)</td></tr>
+  <tr><th>Supports</th><td>pin, roller, roller</td></tr>
+  <tr><th>Bearing length assumed</th><td>140 mm</td></tr>
+  <tr><th>Service condition</th><td>dry</td></tr>
+  <tr><th>Treatment</th><td>none</td></tr>
+  <tr><th>Lateral support</th><td>Compression edge restrained throughout</td></tr>
+</table>
+
+<h3>Specified (unfactored) loads</h3>
+<table>
+  <tr><th>Case</th><th>Type</th><th class="num">Magnitude</th><th>Extent</th></tr>
+  
+  <tr><td>D</td><td>UDL</td><td class="num">0.5 kPa x 3.658 m = 1.829 kN/m</td><td>full length</td></tr>
+  
+  <tr><td>S</td><td>UDL</td><td class="num">2.16 kPa x 3.658 m = 7.900 kN/m</td><td>full length</td></tr>
+  
+</table>
+
+<h2>3. Load combinations considered</h2>
+<p class="muted">NBC 2020 Table 4.1.3.2, adopted by OBC 2024. Every combination
+was analysed; the governing one is reported against each check.</p>
+<table>
+  <tr><th>Combination</th><th>Duration (K<sub>D</sub> basis)</th></tr>
+  <tr><td>1.4D</td><td>permanent</td></tr><tr><td>1.25D + 1S</td><td>standard</td></tr><tr><td>1.25D</td><td>standard</td></tr><tr><td>1.25D + 1.5S</td><td>short</td></tr>
+</table>
+
+<h2>4. Analysis results</h2>
+<table>
+  <tr><th>Quantity</th><th class="num">Value</th><th>Location / combination</th></tr>
+  <tr><td>Maximum sagging moment</td><td class="num">35.65 kN&middot;m</td><td>1.25D + 1.5S</td></tr>
+  <tr><td>Maximum hogging moment</td><td class="num">40.89 kN&middot;m</td><td>1.25D + 1.5S</td></tr>
+  <tr><td>Maximum shear</td><td class="num">45.85 kN</td><td>1.25D + 1.5S</td></tr>
+</table>
+
+<h3>Support reactions and bearing</h3>
+<table>
+  <tr><th>Support</th><th>Type</th><th class="num">Max reaction</th>
+      <th>Governing combination</th><th class="num">Bearing required</th>
+      <th class="num">Bearing ratio</th></tr>
+  
+  <tr>
+    <td>x = 0.000 m</td>
+    <td>pin</td>
+    <td class="num">32.04 kN</td>
+    <td>1.25D + 1.5S</td>
+    <td class="num">47 mm</td>
+    <td class="num pass">0.335</td>
+  </tr>
+  
+  <tr>
+    <td>x = 5.486 m</td>
+    <td>roller</td>
+    <td class="num">84.45 kN</td>
+    <td>1.25D + 1.5S</td>
+    <td class="num">124 mm</td>
+    <td class="num pass">0.884</td>
+  </tr>
+  
+  <tr>
+    <td>x = 9.144 m</td>
+    <td>roller</td>
+    <td class="num">15.15 kN</td>
+    <td>1.25D + 1.5S</td>
+    <td class="num">22 mm</td>
+    <td class="num pass">0.158</td>
+  </tr>
+  
+</table>
+<p class="muted">Bearing required is the length needed at that support for the
+provided bearing width; compare against what the supporting element actually
+delivers.</p>
+<p class="muted">Analysis is a direct-stiffness solution using two-node
+Timoshenko beam elements, so shear deformation is included in both the
+deflections and the distribution of moments in the continuous member.</p>
+
+<h2>5. Design checks (CSA O86-19)</h2>
+
+<div class="check">
+  <div class="title">5.1 &nbsp; Bending moment
+    <span class="pass" style="float:right">
+      PASS &nbsp; ratio 0.650</span>
+  </div>
+  <div class="muted">O86-19 Cl. 13.5 &nbsp;|&nbsp; combination: 1.25D + 1.5S &nbsp;|&nbsp; at x = 5486 mm</div>
+  <div class="formula">M_r = phi_b * F_b * S * K_Zb * K_L
+M_r = 0.9 x 37.31 MPa x 1874 x 10^3 mm^3 x 1.00 x 1.00 = 62.91 kN.m</div>
+  <table>
+    <tr><th class="num" style="width:33%">Demand</th>
+        <th class="num" style="width:33%">Resistance</th>
+        <th class="num">Utilisation</th></tr>
+    <tr><td class="num">40.893 kN.m</td>
+        <td class="num">62.910 kN.m</td>
+        <td class="num pass">0.650</td></tr>
+  </table>
+  
+  <table>
+    <tr><th>Factor</th><th class="num">Value</th><th>Clause</th><th>Basis</th></tr>
+    
+    <tr><td>K_D</td><td class="num">1.150</td>
+        <td>O86-19 Cl. 5.3.2</td><td>Duration of load (short term)</td></tr>
+    
+    <tr><td>K_H</td><td class="num">1.000</td>
+        <td>O86-19 Cl. 6.4.4</td><td>System factor (no system action)</td></tr>
+    
+    <tr><td>K_Sb</td><td class="num">1.000</td>
+        <td>O86-19 Table 6.4.2</td><td>Service condition (dry service, bending)</td></tr>
+    
+    <tr><td>K_T</td><td class="num">1.000</td>
+        <td>O86-19 Table 6.4.3</td><td>Treatment factor (none)</td></tr>
+    
+    <tr><td>depth adj.</td><td class="num">0.979</td>
+        <td>Weyerhaeuser Trus Joist TJ-9500 (E. Canada, Feb 2026), Design Properties p.5</td><td>(12 in./14 in.)^0.136 on f_b</td></tr>
+    
+    <tr><td>K_Z</td><td class="num">1.000</td>
+        <td>O86-19 Cl. 13 / product report</td><td>Size effect handled by the SCL depth adjustment on f_b</td></tr>
+    
+    <tr><td>K_L</td><td class="num">1.000</td>
+        <td>O86-19 Cl. 6.5.4.2</td><td>Compression edge laterally restrained throughout</td></tr>
+    
+  </table>
+  
+  
+</div>
+
+<div class="check">
+  <div class="title">5.2 &nbsp; Longitudinal shear
+    <span class="pass" style="float:right">
+      PASS &nbsp; ratio 0.575</span>
+  </div>
+  <div class="muted">O86-19 Cl. 13.5 &nbsp;|&nbsp; combination: 1.25D + 1.5S &nbsp;|&nbsp; at x = 5410 mm</div>
+  <div class="formula">V_r = phi_v * F_v * (2/3) * A_g * K_Zv
+V_r = 0.9 x 4.202 MPa x (2/3) x 31.61 x 10^3 mm^2 x 1.00 = 79.71 kN</div>
+  <table>
+    <tr><th class="num" style="width:33%">Demand</th>
+        <th class="num" style="width:33%">Resistance</th>
+        <th class="num">Utilisation</th></tr>
+    <tr><td class="num">45.849 kN</td>
+        <td class="num">79.709 kN</td>
+        <td class="num pass">0.575</td></tr>
+  </table>
+  
+  <table>
+    <tr><th>Factor</th><th class="num">Value</th><th>Clause</th><th>Basis</th></tr>
+    
+    <tr><td>K_D</td><td class="num">1.150</td>
+        <td>O86-19 Cl. 5.3.2</td><td>Duration of load (short term)</td></tr>
+    
+    <tr><td>K_H</td><td class="num">1.000</td>
+        <td>O86-19 Cl. 6.4.4</td><td>System factor (no system action)</td></tr>
+    
+    <tr><td>K_Sv</td><td class="num">1.000</td>
+        <td>O86-19 Table 6.4.2</td><td>Service condition (dry service, shear)</td></tr>
+    
+    <tr><td>K_T</td><td class="num">1.000</td>
+        <td>O86-19 Table 6.4.3</td><td>Treatment factor (none)</td></tr>
+    
+    <tr><td>K_Z</td><td class="num">1.000</td>
+        <td>O86-19 Cl. 13 / product report</td><td>Size effect handled by the SCL depth adjustment on f_b</td></tr>
+    
+  </table>
+  
+  
+</div>
+
+<div class="check">
+  <div class="title">5.3 &nbsp; Bearing (compression perpendicular to grain)
+    <span class="pass" style="float:right">
+      PASS &nbsp; ratio 0.884</span>
+  </div>
+  <div class="muted">O86-19 Cl. 6.5.7 &nbsp;|&nbsp; combination: 1.25D + 1.5S &nbsp;|&nbsp; at x = 5486 mm</div>
+  <div class="formula">Q_r = phi_cp * F_cp * A_b * K_B * K_Zcp
+Q_r = 0.8 x 9.41 MPa x (89 x 140) mm^2 x 1.02 x 1.00 = 95.58 kN</div>
+  <table>
+    <tr><th class="num" style="width:33%">Demand</th>
+        <th class="num" style="width:33%">Resistance</th>
+        <th class="num">Utilisation</th></tr>
+    <tr><td class="num">84.454 kN</td>
+        <td class="num">95.581 kN</td>
+        <td class="num pass">0.884</td></tr>
+  </table>
+  
+  <table>
+    <tr><th>Factor</th><th class="num">Value</th><th>Clause</th><th>Basis</th></tr>
+    
+    <tr><td>K_Scp</td><td class="num">1.000</td>
+        <td>O86-19 Table 6.4.2</td><td>Service condition (dry service, bearing)</td></tr>
+    
+    <tr><td>K_T</td><td class="num">1.000</td>
+        <td>O86-19 Table 6.4.3</td><td>Treatment factor (none)</td></tr>
+    
+    <tr><td>K_B</td><td class="num">1.020</td>
+        <td>O86-19 Table 6.5.6.5.1</td><td>Bearing length factor for 140 mm bearing</td></tr>
+    
+    <tr><td>K_Z</td><td class="num">1.000</td>
+        <td>O86-19 Cl. 13 / product report</td><td>Size effect handled by the SCL depth adjustment on f_b</td></tr>
+    
+  </table>
+  
+  <div class="muted">Required bearing length at this support: 124 mm</div>
+</div>
+
+<div class="check">
+  <div class="title">5.4 &nbsp; Live/snow deflection - Span 1
+    <span class="pass" style="float:right">
+      PASS &nbsp; ratio 0.823</span>
+  </div>
+  <div class="muted">OBC 2024 Div. B Table 9.4.3.1 / O86-19 Cl. 4.5.3 &nbsp;|&nbsp; combination: L + S (specified) &nbsp;|&nbsp; at x = 2515 mm</div>
+  <div class="formula">delta &lt;= L / 360
+delta = 12.55 mm vs L/360 = 5486/360 = 15.24 mm</div>
+  <table>
+    <tr><th class="num" style="width:33%">Demand</th>
+        <th class="num" style="width:33%">Resistance</th>
+        <th class="num">Utilisation</th></tr>
+    <tr><td class="num">12.548 mm</td>
+        <td class="num">15.240 mm</td>
+        <td class="num pass">0.823</td></tr>
+  </table>
+  
+  
+</div>
+
+<div class="check">
+  <div class="title">5.5 &nbsp; Total deflection - Span 1
+    <span class="pass" style="float:right">
+      PASS &nbsp; ratio 0.690</span>
+  </div>
+  <div class="muted">OBC 2024 Div. B Table 9.4.3.1 / O86-19 Cl. 4.5.3 &nbsp;|&nbsp; combination: D + L + S (specified) &nbsp;|&nbsp; at x = 2515 mm</div>
+  <div class="formula">delta &lt;= L / 240
+delta = 15.78 mm vs L/240 = 5486/240 = 22.86 mm</div>
+  <table>
+    <tr><th class="num" style="width:33%">Demand</th>
+        <th class="num" style="width:33%">Resistance</th>
+        <th class="num">Utilisation</th></tr>
+    <tr><td class="num">15.783 mm</td>
+        <td class="num">22.860 mm</td>
+        <td class="num pass">0.690</td></tr>
+  </table>
+  
+  
+</div>
+
+<div class="check">
+  <div class="title">5.6 &nbsp; Live/snow deflection - Span 2
+    <span class="pass" style="float:right">
+      PASS &nbsp; ratio 0.076</span>
+  </div>
+  <div class="muted">OBC 2024 Div. B Table 9.4.3.1 / O86-19 Cl. 4.5.3 &nbsp;|&nbsp; combination: L + S (specified) &nbsp;|&nbsp; at x = 8001 mm</div>
+  <div class="formula">delta &lt;= L / 360
+delta = 0.78 mm vs L/360 = 3658/360 = 10.16 mm</div>
+  <table>
+    <tr><th class="num" style="width:33%">Demand</th>
+        <th class="num" style="width:33%">Resistance</th>
+        <th class="num">Utilisation</th></tr>
+    <tr><td class="num">0.776 mm</td>
+        <td class="num">10.160 mm</td>
+        <td class="num pass">0.076</td></tr>
+  </table>
+  
+  
+</div>
+
+<div class="check">
+  <div class="title">5.7 &nbsp; Total deflection - Span 2
+    <span class="pass" style="float:right">
+      PASS &nbsp; ratio 0.064</span>
+  </div>
+  <div class="muted">OBC 2024 Div. B Table 9.4.3.1 / O86-19 Cl. 4.5.3 &nbsp;|&nbsp; combination: D + L + S (specified) &nbsp;|&nbsp; at x = 8001 mm</div>
+  <div class="formula">delta &lt;= L / 240
+delta = 0.98 mm vs L/240 = 3658/240 = 15.24 mm</div>
+  <table>
+    <tr><th class="num" style="width:33%">Demand</th>
+        <th class="num" style="width:33%">Resistance</th>
+        <th class="num">Utilisation</th></tr>
+    <tr><td class="num">0.976 mm</td>
+        <td class="num">15.240 mm</td>
+        <td class="num pass">0.064</td></tr>
+  </table>
+  
+  
+</div>
+
+
+<h2>6. Summary</h2>
+<table>
+  <tr><th>Check</th><th>Combination</th><th class="num">Demand</th>
+      <th class="num">Resistance</th><th class="num">Ratio</th><th>Status</th></tr>
+  
+  <tr><td>Bending moment</td><td>1.25D + 1.5S</td>
+      <td class="num">40.89 kN.m</td>
+      <td class="num">62.91 kN.m</td>
+      <td class="num">0.650</td>
+      <td class="pass">PASS</td></tr>
+  
+  <tr><td>Longitudinal shear</td><td>1.25D + 1.5S</td>
+      <td class="num">45.85 kN</td>
+      <td class="num">79.71 kN</td>
+      <td class="num">0.575</td>
+      <td class="pass">PASS</td></tr>
+  
+  <tr><td>Bearing (compression perpendicular to grain)</td><td>1.25D + 1.5S</td>
+      <td class="num">84.45 kN</td>
+      <td class="num">95.58 kN</td>
+      <td class="num">0.884</td>
+      <td class="pass">PASS</td></tr>
+  
+  <tr><td>Live/snow deflection - Span 1</td><td>L + S (specified)</td>
+      <td class="num">12.55 mm</td>
+      <td class="num">15.24 mm</td>
+      <td class="num">0.823</td>
+      <td class="pass">PASS</td></tr>
+  
+  <tr><td>Total deflection - Span 1</td><td>D + L + S (specified)</td>
+      <td class="num">15.78 mm</td>
+      <td class="num">22.86 mm</td>
+      <td class="num">0.690</td>
+      <td class="pass">PASS</td></tr>
+  
+  <tr><td>Live/snow deflection - Span 2</td><td>L + S (specified)</td>
+      <td class="num">0.78 mm</td>
+      <td class="num">10.16 mm</td>
+      <td class="num">0.076</td>
+      <td class="pass">PASS</td></tr>
+  
+  <tr><td>Total deflection - Span 2</td><td>D + L + S (specified)</td>
+      <td class="num">0.98 mm</td>
+      <td class="num">15.24 mm</td>
+      <td class="num">0.064</td>
+      <td class="pass">PASS</td></tr>
+  
+</table>
+<p><b>Governing check:</b>
+  Bearing (compression perpendicular to grain)
+  at ratio 0.884 -
+  <span class="pass">MEMBER ADEQUATE</span>
+</p>
+
+
+<h2>7. Notes and warnings</h2>
+<div class="warn">Microllam LVL 2.0E design values assume lateral support at bearings and at 24 in. (610 mm) on-centre maximum along the span, per the TJ-9500 general assumptions.</div><div class="warn">Multi-ply SCL must be fastened per TJ-9500 pages 16-18. Side-loaded plies beyond two require through-bolting or top-loading; confirm the connection detail transfers load to every ply.</div><div class="warn">Total deflection excludes creep (creep factor 1.0). CSA O86-19 Cl. 4.5.3 requires long-term deflection under permanent load to be multiplied by 2.0 for sawn lumber in dry service.</div><div class="warn">Required bearing length at this support: 124 mm (increase bearing length or add a column cap if longer than provided).</div>
+
+
+<div class="sig">
+  <div>Calculated by / date</div>
+  <div>Checked by / date</div>
+</div>
+
+<footer>
+  Produced by the Engineering Design Toolkit. This calculation is a design aid,
+  not a substitute for engineering judgement. The engineer of record is
+  responsible for verifying input, material properties, code clauses and the
+  suitability of the result. Generated 2026-08-04.
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,293 @@
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --border: #d3d7de;
+  --text: #1a1d21;
+  --muted: #626b76;
+  --accent: #1f5fa8;
+  --pass: #0a7a2a;
+  --fail: #c02020;
+  --warn: #a86a00;
+  --warn-bg: #fff8e6;
+  font-family: "Segoe UI", system-ui, Arial, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 400px 1fr;
+  gap: 16px;
+  padding: 16px;
+  align-items: start;
+  max-width: 1700px;
+  margin: 0 auto;
+}
+
+@media (max-width: 1100px) {
+  .app { grid-template-columns: 1fr; }
+}
+
+header.top {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+}
+header.top h1 { margin: 0; font-size: 18px; }
+header.top p { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.panel h3 { margin: 14px 0 6px; font-size: 13px; }
+
+label { display: block; margin-bottom: 9px; font-size: 12.5px; color: var(--muted); }
+label > span { display: block; margin-bottom: 3px; }
+
+input, select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+  background: #fff;
+  color: var(--text);
+}
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.row { display: flex; gap: 8px; }
+.row > * { flex: 1; }
+
+.inline { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; font-size: 12.5px; }
+.inline input[type="checkbox"] { width: auto; }
+
+button {
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #fff;
+  cursor: pointer;
+}
+button:hover { background: #f0f2f5; }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  width: 100%;
+  padding: 10px;
+}
+button.primary:hover { background: #17497f; }
+button.primary:disabled { opacity: 0.55; cursor: default; }
+button.link {
+  border: none; background: none; color: var(--accent);
+  padding: 2px 4px; text-decoration: underline; font-size: 12.5px;
+}
+
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left; }
+th { background: #eef1f4; font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.pass { color: var(--pass); font-weight: 700; }
+.fail { color: var(--fail); font-weight: 700; }
+
+.verdict {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-radius: 8px; margin-bottom: 14px;
+  border: 1.5px solid;
+}
+.verdict.ok { background: #eaf7ee; border-color: var(--pass); color: var(--pass); }
+.verdict.no { background: #fdecec; border-color: var(--fail); color: var(--fail); }
+.verdict .big { font-size: 20px; font-weight: 800; letter-spacing: 0.02em; }
+.verdict .sub { color: var(--text); font-size: 12.5px; }
+
+.warn {
+  border-left: 3px solid var(--warn);
+  background: var(--warn-bg);
+  padding: 7px 11px;
+  margin: 6px 0;
+  font-size: 12.5px;
+}
+
+.bar {
+  position: relative; height: 15px; background: #e6e9ed;
+  border-radius: 3px; overflow: hidden; min-width: 90px;
+}
+.bar > i {
+  display: block; height: 100%; background: var(--pass);
+}
+.bar.over > i { background: var(--fail); }
+
+.charts { display: grid; gap: 12px; }
+.chart-title { font-size: 13px; font-weight: 600; margin: 0 0 2px; }
+.chart-sub { font-size: 11.5px; color: var(--muted); margin: 0 0 6px; }
+
+details.check-detail { margin: 5px 0; }
+details.check-detail summary { cursor: pointer; font-size: 12.5px; }
+.formula {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11.5px; background: #f3f4f6; border-radius: 4px;
+  padding: 6px 8px; margin: 5px 0; white-space: pre-wrap;
+}
+.muted { color: var(--muted); }
+.err {
+  background: #fdecec; border: 1px solid var(--fail); color: var(--fail);
+  padding: 9px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 12px;
+}
+.loads-table td { padding: 3px 4px; border: none; }
+.loads-table input, .loads-table select { font-size: 12px; padding: 4px 6px; }
+
+.notice {
+  background: #eaf7ee; border: 1px solid var(--pass); color: var(--pass);
+  padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 12px;
+}
+.project-bar h2 { margin-bottom: 8px; }
+.project-bar button { padding: 6px 12px; }
+.project-bar label { margin-bottom: 0; }
+
+/* Tab navigation */
+.tabs { display: flex; gap: 6px; margin: 10px 0 -13px; }
+.tab {
+  border: 1px solid var(--border);
+  border-bottom-color: transparent;
+  background: #eef1f4;
+  border-radius: 7px 7px 0 0;
+  padding: 7px 16px 8px;
+  cursor: pointer;
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1.25;
+}
+.tab span {
+  display: block;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+.tab:hover { background: #e4e8ed; }
+.tab.on {
+  background: var(--panel);
+  color: var(--accent);
+  border-color: var(--border);
+  border-bottom-color: var(--panel);
+}
+.tab.on span { color: var(--text); }
+
+/* Segmented control */
+button.seg {
+  flex: 1;
+  background: #eef1f4;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 7px 10px;
+}
+button.seg.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* Live model preview */
+.model-preview { padding-bottom: 10px; }
+.model-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 12px; margin-bottom: 8px;
+}
+.model-head h2 { text-transform: uppercase; letter-spacing: .04em; font-size: 14px; color: var(--muted); }
+.stale-chip {
+  flex: none; font-size: 11.5px; font-weight: 600; color: var(--warn);
+  background: var(--warn-bg); border: 1px solid var(--warn);
+  border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+}
+.model-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) 272px;
+  gap: 16px; align-items: start;
+}
+@media (max-width: 900px) {
+  .model-grid { grid-template-columns: 1fr; }
+  .model-section { max-width: 260px; }
+}
+.mini-title {
+  margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted);
+}
+.model-section { border-left: 1px solid var(--border); padding-left: 16px; }
+@media (max-width: 900px) {
+  .model-section { border-left: none; padding-left: 0; border-top: 1px solid var(--border); padding-top: 10px; }
+}
+.auto-size-note {
+  display: flex; flex-direction: column; gap: 3px; justify-content: center;
+  align-items: center; height: 150px; border: 1px dashed var(--border);
+  border-radius: 8px; color: var(--muted); font-size: 12.5px; text-align: center;
+}
+.model-desc { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 9px; }
+.model-desc p { margin: 0 0 4px; font-size: 12.5px; line-height: 1.5; }
+
+/* Soil / buried pipe */
+
+/* The results column is the thing these grids have to fit, and its width
+   depends on whether the app itself is one or two columns. Keying off the
+   viewport got that wrong; a container query asks the column directly. */
+.app > div:last-child {
+  container-type: inline-size;
+  container-name: results;
+}
+
+.soil-views,
+.charts {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+  grid-template-columns: 1fr;
+}
+.soil-views .mini-title { margin-bottom: 4px; }
+
+@container results (min-width: 720px) {
+  .soil-views,
+  .charts { grid-template-columns: 1fr 1fr; }
+  .soil-views > div + div {
+    border-left: 1px solid var(--border);
+    padding-left: 16px;
+  }
+}
+
+/* Modal (axle configuration popup) */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(20, 20, 20, 0.45);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 40px 16px; z-index: 100; overflow-y: auto;
+}
+.modal {
+  background: var(--panel); border-radius: 10px; padding: 18px 20px;
+  max-width: 980px; width: 100%; box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+}
+.modal-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px;
+}
+.axle-table { font-size: 12px; white-space: nowrap; }
+.axle-table th, .axle-table td { padding: 4px 6px; }
+.axle-table input, .axle-table select { font-size: 12px; padding: 4px 6px; min-width: 68px; }
