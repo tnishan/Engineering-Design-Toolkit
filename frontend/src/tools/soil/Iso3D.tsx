@@ -9,6 +9,7 @@ interface Props {
   offsetM: number;
   coverM: number;
   pipeOdM: number;
+  orientation?: "along" | "across";
 }
 
 const VB_W = 780;
@@ -66,7 +67,7 @@ const path = (pts: P2[]) =>
   pts.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("") + "Z";
 
 export default function Iso3D({
-  bulb, crownPlan, patches, offsetM, coverM, pipeOdM,
+  bulb, crownPlan, patches, offsetM, coverM, pipeOdM, orientation = "across",
 }: Props) {
   const [showCrown, setShowCrown] = useState(true);
 
@@ -131,20 +132,12 @@ export default function Iso3D({
 
   // The section is cut at y = 0 in reported coordinates (the worst point
   // along the pipe, which is where the bulb was sampled).
-  // Cut at y = 0: the plane the bulb was sampled on (the worst point).
   const yCut = 0;
   const pipeZ = coverM + pipeOdM / 2;
   const pipeR = pipeOdM / 2;
 
   /*
    * A cutaway, with the quarter NEAREST the viewer removed.
-   *
-   * This projection puts the viewer at large +x and +y (the view direction is
-   * (1, 1, -1)), so depth sorts on x + y - z and larger y is nearer. Removing
-   * y < yCut therefore took away the far half and left the near half standing
-   * in front of the cut face: the ground then projected onto the section and
-   * hid the track bearing on it. Removing y > yCut leaves the cut face with
-   * nothing in front of it, and the remaining ground can never overlap it.
    */
   const ground = [p(xMin, yMin, 0), p(xMax, yMin, 0), p(xMax, yCut, 0), p(xMin, yCut, 0)];
   const backWall = [p(xMin, yMin, 0), p(xMax, yMin, 0), p(xMax, yMin, zMax), p(xMin, yMin, zMax)];
@@ -156,11 +149,6 @@ export default function Iso3D({
       const t = (i / 48) * Math.PI * 2;
       return p(pipeR * Math.cos(t), y, pipeZ + pipeR * Math.sin(t));
     });
-  /*
-   * Only the length of pipe inside the cut-away quarter is drawn. Running it
-   * the full depth of the block put it on top of the ground surface it is
-   * buried under, and hid the track bearing on that surface.
-   */
   const nearRing = ring(yMax);
   const pipeBody = convexHull([...nearRing, ...ring(yCut)]);
 
@@ -170,15 +158,26 @@ export default function Iso3D({
     return [p(x0, y0, 0), p(x1, y0, 0), p(x1, y1, 0), p(x0, y1, 0)];
   };
 
+  // Travel arrow coordinates on ground surface (behind the cut in the visible quadrant)
+  const arrowBaseX = offsetM;
+  const arrowBaseY = (yMin + yCut) / 2;
+  const arrowLen = Math.min(1.8, (xMax - xMin) / 4);
+
+  const travelArrowStart = orientation === "across"
+    ? p(arrowBaseX - arrowLen / 2, arrowBaseY, 0)
+    : p(arrowBaseX, arrowBaseY - arrowLen / 2, 0);
+
+  const travelArrowEnd = orientation === "across"
+    ? p(arrowBaseX + arrowLen / 2, arrowBaseY, 0)
+    : p(arrowBaseX, arrowBaseY + arrowLen / 2, 0);
+
   return (
     <div className="panel">
       <div className="model-head">
         <div>
           <p className="chart-title">Three-dimensional view</p>
           <p className="chart-sub">
-            Isometric cutaway. The vertical face carries the pressure bulb; the
-            horizontal slice revealed by the cut is crown level. Both share one
-            colour scale, so the crown slice reads pale because it genuinely is.
+            Isometric cutaway showing machine bearing areas, travel direction, pipe alignment, and stress dissipation.
           </p>
         </div>
         <label className="inline" style={{ margin: 0, whiteSpace: "nowrap" }}>
@@ -191,6 +190,12 @@ export default function Iso3D({
       <svg viewBox={`0 0 ${VB_W} ${VB_H}`}
            style={{ width: "100%", height: "auto", maxHeight: 360 }}
            role="img" aria-label="Isometric view of the loads, pipe and pressure bulb">
+        <defs>
+          <marker id="arrowhead" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <polygon points="0 0, 6 3, 0 6" fill="#b91c1c" />
+          </marker>
+        </defs>
+
         {/* soil block: far faces, then the surface behind the cut */}
         <path d={path(backWall)} fill="#ded6c6" stroke="#a89c85" strokeWidth={1} />
         <path d={path(sideWall)} fill="#d3cab8" stroke="#a89c85" strokeWidth={1} />
@@ -218,6 +223,29 @@ export default function Iso3D({
             </g>
           );
         })}
+
+        {/* Travel direction arrow on ground surface */}
+        <g>
+          <line
+            x1={travelArrowStart.x}
+            y1={travelArrowStart.y}
+            x2={travelArrowEnd.x}
+            y2={travelArrowEnd.y}
+            stroke="#b91c1c"
+            strokeWidth={2.5}
+            markerEnd="url(#arrowhead)"
+          />
+          <text
+            x={travelArrowEnd.x + (orientation === "across" ? 8 : -8)}
+            y={travelArrowEnd.y - 4}
+            fontSize={9.5}
+            fontWeight={600}
+            fill="#b91c1c"
+            textAnchor={orientation === "across" ? "start" : "end"}
+          >
+            {orientation === "across" ? "Travel: Crossing Pipe →" : "Travel: Along Pipe →"}
+          </text>
+        </g>
 
         {/* the cut face, carrying the pressure bulb */}
         {sectionPng && (
@@ -269,17 +297,18 @@ export default function Iso3D({
         {/* axes */}
         <g stroke="#5c5344" fill="#5c5344" fontSize={10}>
           <text x={p(xMax, yMin, 0).x + 10} y={p(xMax, yMin, 0).y + 12}>
-            across pipe →
+            across pipe (x) →
           </text>
           <text x={p(xMin, yMax, 0).x - 10} y={p(xMin, yMax, 0).y - 6} textAnchor="end">
-            ← along pipe
+            ← along pipe (y)
           </text>
           <text x={p(xMin, yMin, zMax).x - 8} y={p(xMin, yMin, zMax).y + 4}
                 textAnchor="end">
-            model shown to {zMax.toFixed(1)} m depth
+            depth (z) to {zMax.toFixed(1)} m
           </text>
         </g>
       </svg>
     </div>
   );
 }
+

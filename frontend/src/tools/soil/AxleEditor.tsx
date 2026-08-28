@@ -1,4 +1,6 @@
-import type { AxleSpecIn } from "../../api/types";
+import { useEffect, useRef, useState } from "react";
+import { deleteAxleConfig, listAxleConfigs, loadAxleConfig, saveAxleConfig } from "../../api/client";
+import type { AxleConfigSummary, AxleSpecIn } from "../../api/types";
 
 export interface AxleRow {
   label: string;
@@ -37,6 +39,19 @@ export function axleRowsToRequest(rows: AxleRow[]): AxleSpecIn[] {
   }));
 }
 
+export function axleSpecsToRows(specs: AxleSpecIn[]): AxleRow[] {
+  return specs.map((a, i) => ({
+    label: a.label || `Axle ${i + 1}`,
+    loadKn: a.load_kn,
+    tiresPerSide: (a.tires_per_side as 1 | 2) || 1,
+    tireWidth: typeof a.tire_width === "number" ? `${a.tire_width}` : String(a.tire_width || "300"),
+    tireLength: a.tire_length != null ? String(a.tire_length) : "",
+    tirePressureKpa: a.tire_pressure_kpa != null ? String(a.tire_pressure_kpa) : "",
+    dualSpacing: typeof a.dual_spacing === "number" ? `${a.dual_spacing}` : String(a.dual_spacing || "0"),
+    spacingFromPrevious: typeof a.spacing_from_previous === "number" ? `${a.spacing_from_previous}` : String(a.spacing_from_previous || "0"),
+  }));
+}
+
 interface Props {
   open: boolean;
   axles: AxleRow[];
@@ -46,6 +61,18 @@ interface Props {
 }
 
 export default function AxleEditor({ open, axles, axleWidth, onChange, onClose }: Props) {
+  const [configs, setConfigs] = useState<AxleConfigSummary[]>([]);
+  const [selectedConfig, setSelectedConfig] = useState("");
+  const [configName, setConfigName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      listAxleConfigs().then(setConfigs).catch(() => setConfigs([]));
+    }
+  }, [open]);
+
   if (!open) return null;
 
   const updateRow = (i: number, patch: Partial<AxleRow>) => {
@@ -53,6 +80,84 @@ export default function AxleEditor({ open, axles, axleWidth, onChange, onClose }
   };
   const addRow = () => onChange([...axles, blankAxleRow(axles.length + 1)], axleWidth);
   const removeRow = (i: number) => onChange(axles.filter((_, j) => j !== i), axleWidth);
+
+  const handleSaveConfig = async () => {
+    if (!configName.trim()) return;
+    setBusy(true);
+    try {
+      const summary = await saveAxleConfig(configName.trim(), axleRowsToRequest(axles), axleWidth);
+      const updated = await listAxleConfigs();
+      setConfigs(updated);
+      setSelectedConfig(summary.id);
+    } catch (e) {
+      alert(`Error saving axle configuration: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleLoadConfig = async (id: string) => {
+    if (!id) return;
+    setBusy(true);
+    try {
+      const conf = await loadAxleConfig(id);
+      const loadedRows = axleSpecsToRows(conf.truck_axles);
+      const loadedWidth = typeof conf.truck_axle_width === "number" ? `${conf.truck_axle_width} m` : String(conf.truck_axle_width);
+      onChange(loadedRows, loadedWidth);
+      setConfigName(conf.name);
+    } catch (e) {
+      alert(`Error loading axle configuration: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeleteConfig = async (id: string) => {
+    if (!id) return;
+    const c = configs.find((x) => x.id === id);
+    if (!c || !confirm(`Delete saved axle configuration "${c.name}"?`)) return;
+    setBusy(true);
+    try {
+      await deleteAxleConfig(id);
+      const updated = await listAxleConfigs();
+      setConfigs(updated);
+      setSelectedConfig("");
+    } catch (e) {
+      alert(`Error deleting axle configuration: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportJson = () => {
+    const record = {
+      name: configName || "axle-config",
+      truck_axle_width: axleWidth,
+      truck_axles: axleRowsToRequest(axles),
+    };
+    const blob = new Blob([JSON.stringify(record, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${(configName || "axle-config").replace(/[^\w.-]+/g, "-")}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const importJson = async (file: File) => {
+    try {
+      const text = await file.text();
+      const record = JSON.parse(text);
+      if (!record.truck_axles || !Array.isArray(record.truck_axles)) {
+        throw new Error("File does not contain valid truck_axles array.");
+      }
+      const loadedRows = axleSpecsToRows(record.truck_axles);
+      const loadedWidth = record.truck_axle_width ? String(record.truck_axle_width) : axleWidth;
+      onChange(loadedRows, loadedWidth);
+      if (record.name) setConfigName(record.name);
+    } catch (e) {
+      alert(`Could not import file: ${e instanceof Error ? e.message : e}`);
+    }
+  };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -62,7 +167,81 @@ export default function AxleEditor({ open, axles, axleWidth, onChange, onClose }
           <button type="button" className="link" onClick={onClose}>Close ✕</button>
         </div>
 
-        <label style={{ maxWidth: 260 }}><span>Axle (track) width — left/right wheel centres</span>
+        {/* Saved Axle Configs Management */}
+        <div style={{ background: "#f8fafc", padding: "10px 14px", borderRadius: 6, border: "1px solid #e2e8f0", marginBottom: 14 }}>
+          <div className="row" style={{ alignItems: "flex-end" }}>
+            <label style={{ flex: 2 }}>
+              <span>Save current configuration as</span>
+              <input
+                value={configName}
+                placeholder="e.g. 5-Axle Mobile Crane 60t"
+                onChange={(e) => setConfigName(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={busy || !configName.trim()}
+              onClick={handleSaveConfig}
+              style={{ flex: 0, whiteSpace: "nowrap" }}
+            >
+              Save config
+            </button>
+          </div>
+
+          <div className="row" style={{ alignItems: "flex-end", marginTop: 6 }}>
+            <label style={{ flex: 2 }}>
+              <span>Load saved configuration</span>
+              <select value={selectedConfig} onChange={(e) => setSelectedConfig(e.target.value)}>
+                <option value="">
+                  {configs.length ? "— select saved axle layout —" : "— no saved layouts —"}
+                </option>
+                {configs.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.axle_count} axles · {c.total_load_kn} kN total)
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={!selectedConfig || busy}
+              onClick={() => handleLoadConfig(selectedConfig)}
+              style={{ flex: 0 }}
+            >
+              Load
+            </button>
+            <button
+              type="button"
+              disabled={!selectedConfig || busy}
+              onClick={() => handleDeleteConfig(selectedConfig)}
+              style={{ flex: 0 }}
+            >
+              Delete
+            </button>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button type="button" className="link" onClick={exportJson}>
+              Export .json
+            </button>
+            <button type="button" className="link" onClick={() => fileRef.current?.click()}>
+              Import .json
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) importJson(f);
+                e.target.value = "";
+              }}
+            />
+          </div>
+        </div>
+
+        <label style={{ maxWidth: 280 }}><span>Axle (track) width — left/right wheel centres</span>
           <input value={axleWidth} onChange={(e) => onChange(axles, e.target.value)} />
         </label>
 

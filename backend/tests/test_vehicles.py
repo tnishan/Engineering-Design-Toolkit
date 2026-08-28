@@ -192,3 +192,25 @@ def test_preset_registries_are_keyed_consistently():
     assert TRUCK_PRESETS["cl625"] is CL625_TRUCK
     assert TRUCK_PRESETS["western_star_4700sb"] is WESTERN_STAR_4700SB
     assert TRACKED_PRESETS["cat_320"] is CAT_320_EXCAVATOR
+
+
+# --------------------------------------------------------------------------
+# CL-625: loads are real, contact length is a stated dimension, not a live
+# pressure-derived approximation shown next to the real loads.
+# --------------------------------------------------------------------------
+
+def test_cl625_axles_carry_a_fixed_length_not_a_pressure():
+    for axle in CL625_TRUCK.axles:
+        assert axle.tire_pressure_kpa is None, axle.label
+        assert axle.tire_length_m is not None, axle.label
+        assert axle.tire_length_m > 0
+
+
+def test_cl625_axle_lengths_match_the_load_over_pressure_rule():
+    """The stored lengths must still reproduce what a 700 kPa assumption
+    would have given dynamically - only WHERE it is stored has changed."""
+    expected_wheel_loads = (25.0, 70.0, 70.0, 87.5, 60.0)
+    for axle, wheel_load in zip(CL625_TRUCK.axles, expected_wheel_loads):
+        expected_length = (wheel_load / 700.0) / 0.3
+        assert axle.tire_length_m == pytest.approx(expected_length, rel=1e-3)
+        assert axle.contact_length_m() == pytest.approx(expected_length, rel=1e-3)

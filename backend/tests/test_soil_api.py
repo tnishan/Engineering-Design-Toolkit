@@ -39,7 +39,8 @@ def test_excavator_roundtrip():
 
     keys = [m["key"] for m in d["methods"]]
     assert keys == ["boussinesq", "boussinesq_point", "westergaard",
-                    "spread_2to1", "spread_superposed", "code_spread"]
+                    "spread_2to1", "spread_superposed", "code_spread",
+                    "code_spread_superposed"]
 
     assert len(d["patches"]) == 2
     assert d["patches"][0]["width_x_m"] == pytest.approx(3.2)
@@ -423,3 +424,186 @@ def test_vehicle_comparison_unknown_preset_key():
     })
     d = r.json()
     assert d["results"][0]["ok"] is False
+
+
+def test_soil_project_save_load_delete():
+    # Save project
+    save_resp = client.post("/api/projects/soil", json={
+        "name": "Test Crossing Project",
+        "payload": EXCAVATOR,
+    })
+    assert save_resp.status_code == 200, save_resp.text
+    summary = save_resp.json()
+    assert summary["name"] == "Test Crossing Project"
+    pid = summary["id"]
+
+    # List projects
+    list_resp = client.get("/api/projects/soil")
+    assert list_resp.status_code == 200
+    ids = [p["id"] for p in list_resp.json()]
+    assert pid in ids
+
+    # Load project
+    load_resp = client.get(f"/api/projects/soil/{pid}")
+    assert load_resp.status_code == 200
+    pdata = load_resp.json()
+    assert pdata["payload"]["cover"] == "1.0 m"
+    assert pdata["payload"]["project"] == "Trunk main crossing"
+
+    # Delete project
+    del_resp = client.delete(f"/api/projects/soil/{pid}")
+    assert del_resp.status_code == 200
+    assert del_resp.json()["status"] == "deleted"
+
+
+def test_axle_config_save_load_delete():
+    # Save axle config
+    save_resp = client.post("/api/soil/axle-configs", json={
+        "name": "Heavy 4 Axle Crane",
+        "truck_axles": [
+            {"label": "axle 1", "load_kn": 120.0, "tires_per_side": 1, "tire_width": "300", "tire_length": "250", "dual_spacing": "0", "spacing_from_previous": "0"},
+            {"label": "axle 2", "load_kn": 140.0, "tires_per_side": 2, "tire_width": "300", "tire_length": "250", "dual_spacing": "350", "spacing_from_previous": "1.5 m"},
+        ],
+        "truck_axle_width": "2.2 m",
+    })
+    assert save_resp.status_code == 200, save_resp.text
+    summary = save_resp.json()
+    assert summary["name"] == "Heavy 4 Axle Crane"
+    cid = summary["id"]
+
+    # List axle configs
+    list_resp = client.get("/api/soil/axle-configs")
+    assert list_resp.status_code == 200
+    cids = [c["id"] for c in list_resp.json()]
+    assert cid in cids
+
+    # Load axle config
+    load_resp = client.get(f"/api/soil/axle-configs/{cid}")
+    assert load_resp.status_code == 200
+    cdata = load_resp.json()
+    assert len(cdata["truck_axles"]) == 2
+    assert cdata["truck_axle_width"] == "2.2 m"
+
+    # Delete axle config
+    del_resp = client.delete(f"/api/soil/axle-configs/{cid}")
+    assert del_resp.status_code == 200
+    assert del_resp.json()["status"] == "deleted"
+
+
+def test_saved_vehicle_save_load_delete():
+    # Save custom vehicle
+    save_resp = client.post("/api/soil/vehicles", json={
+        "name": "CAT 330 Custom Spec",
+        "load_type": "tracked",
+        "tracked": {
+            "weight_kn": 309.0,
+            "track_length": "3.99 m",
+            "track_width": "800 mm",
+            "gauge": "2.59 m",
+        },
+    })
+    assert save_resp.status_code == 200, save_resp.text
+    summary = save_resp.json()
+    assert summary["name"] == "CAT 330 Custom Spec"
+    vid = summary["id"]
+
+    # List saved vehicles
+    list_resp = client.get("/api/soil/vehicles")
+    assert list_resp.status_code == 200
+    vids = [v["id"] for v in list_resp.json()]
+    assert vid in vids
+
+    # Load saved vehicle
+    load_resp = client.get(f"/api/soil/vehicles/{vid}")
+    assert load_resp.status_code == 200
+    vdata = load_resp.json()
+    assert vdata["load_type"] == "tracked"
+    assert vdata["tracked"]["weight_kn"] == 309.0
+
+    # Delete saved vehicle
+    del_resp = client.delete(f"/api/soil/vehicles/{vid}")
+    assert del_resp.status_code == 200
+    assert del_resp.json()["status"] == "deleted"
+
+
+
+
+# --------------------------------------------------------------------------
+# Tyre/track dimensions and loads, exposed to the frontend
+# --------------------------------------------------------------------------
+
+def test_pipe_surcharge_reports_per_axle_load_and_dimensions():
+    d = client.post("/api/soil/pipe-surcharge", json=EXCAVATOR).json()
+    assert d["axles"], "excavator must report at least one axle line"
+    tracks = d["axles"][0]
+    assert tracks["label"] == "Tracks"
+    assert tracks["load_kn"] == pytest.approx(200.0, rel=1e-3)
+    assert tracks["tires_per_side"] == 1
+    assert tracks["width_m"] == pytest.approx(0.6, rel=1e-2)   # shoe width
+    assert tracks["length_m"] == pytest.approx(3.2, rel=1e-2)  # ground contact
+
+
+def test_multi_axle_truck_reports_one_row_per_axle_with_correct_loads():
+    d = client.post("/api/soil/pipe-surcharge", json=TWO_AXLE_TRUCK).json()
+    assert len(d["axles"]) == 2
+    by_label = {a["label"]: a for a in d["axles"]}
+    assert by_label["front"]["load_kn"] == pytest.approx(50.0)
+    assert by_label["rear"]["load_kn"] == pytest.approx(100.0)
+    # Sorted from first axle to last, so spacing between them is reported.
+    assert d["axles"][0]["spacing_m"] == pytest.approx(0.0)
+    assert d["axles"][1]["spacing_m"] == pytest.approx(4.0, rel=1e-2)
+
+
+def test_dual_tyre_axle_load_is_the_full_axle_not_one_tyre():
+    payload = dict(TWO_AXLE_TRUCK, truck_axles=[
+        {"label": "drive", "load_kn": 200.0, "tires_per_side": 2,
+         "tire_width": "0.25 m", "tire_length": "0.3 m", "dual_spacing": "0.35 m"},
+    ])
+    d = client.post("/api/soil/pipe-surcharge", json=payload).json()
+    assert len(d["axles"]) == 1
+    assert d["axles"][0]["load_kn"] == pytest.approx(200.0)
+    assert d["axles"][0]["tires_per_side"] == 2
+
+
+def test_axle_width_measured_from_geometry_not_trusted_from_the_request():
+    """A preset vehicle's real gauge must be reported, not the comparison
+    request's default truck_axle_width placeholder."""
+    r = client.post("/api/soil/vehicle-comparison", json={
+        "vehicles": [
+            {"label": "CAT 320", "load_type": "tracked", "preset_key": "cat_320",
+             "orientation": "across"},
+        ],
+        "cover": "1.2 m", "pipe_od": "600", "dla_mode": "none",
+    })
+    d = r.json()
+    result = d["results"][0]
+    assert result["ok"] is True
+    # CAT 320's real gauge (~2.4 m), not the 1.8 m placeholder default.
+    assert result["axle_width_m"] == pytest.approx(2.4, rel=0.05)
+
+
+def test_vehicle_comparison_reports_axle_dimensions_for_cl625():
+    r = client.post("/api/soil/vehicle-comparison", json={
+        "vehicles": [
+            {"label": "CL-625", "load_type": "truck", "preset_key": "cl625",
+             "orientation": "across"},
+        ],
+        "cover": "1.2 m", "pipe_od": "600", "dla_mode": "none",
+    })
+    result = r.json()["results"][0]
+    assert result["ok"] is True
+    assert len(result["axles"]) == 5
+    loads = sorted(a["load_kn"] for a in result["axles"])
+    assert loads == [50.0, 120.0, 140.0, 140.0, 175.0]
+    assert all(a["width_m"] > 0 and a["length_m"] > 0 for a in result["axles"])
+    # Axles are ordered along the wheelbase, so spacing must reconstruct it.
+    assert sum(a["spacing_m"] for a in result["axles"]) == pytest.approx(18.0, abs=0.05)
+
+
+def test_cl625_preset_payload_carries_length_not_pressure():
+    d = client.get("/api/soil/vehicle-presets").json()
+    cl625 = next(t for t in d["trucks"] if t["key"] == "cl625")
+    for axle in cl625["axles"]:
+        assert axle["tire_pressure_kpa"] is None
+        assert axle["tire_length_m"] is not None
+        assert axle["tire_length_m"] > 0

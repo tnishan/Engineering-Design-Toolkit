@@ -92,6 +92,14 @@ class SurchargeRequestIn(BaseModel):
     member: str = ""
     engineer: str = ""
 
+    # Which preset the axle figures were loaded from, if any. The analysis does
+    # not need this - the axles have already been copied into the request - but
+    # without it the preset's source, verified flag and assumptions never reach
+    # the server, so an export cannot say where the numbers came from or that
+    # they are an unconfirmed transcription.
+    vehicle_preset_key: str = ""
+    vehicle_name: str = ""
+
 
 class TermOut(BaseModel):
     label: str
@@ -235,6 +243,97 @@ class VehicleComparisonRequestIn(BaseModel):
     spread_factor: float = Field(default=1.15, ge=0.0, le=3.0)
 
 
+class AxleDetailOut(BaseModel):
+    label: str = ""
+    load_kn: float = 0.0
+    tires_per_side: int = 1
+    width_m: float = 0.0
+    length_m: float = 0.0
+    spacing_m: float = 0.0
+
+
+class VehicleAxleOut(BaseModel):
+    """One axle line of the machine, in its own travel frame.
+
+    Distinct from ``AxleDetailOut``, which is measured back off the placed
+    patches and keyed by label. This one is built straight from the resolved
+    ``AxleSpec``, so it keeps the things a measurement cannot recover:
+    ``contact_length_is_derived``, and a ``None`` (rather than ``0.0``) for
+    dimensions that do not exist on this axle.
+    """
+
+    index: int = 0
+    label: str = ""
+    load_kn: float = 0.0
+    wheel_load_kn: float = 0.0
+    tires_per_side: int = 1
+    tire_width_m: float = 0.0
+    contact_length_m: float = 0.0
+    # True when the contact length was backed out of an assumed inflation
+    # pressure. The CL-625 preset is the reason this exists: every one of its
+    # axles reports exactly 700 kPa because the lengths came FROM 700 kPa.
+    # The diagram must mark such a figure as an assumption, not a measurement.
+    contact_length_is_derived: bool = False
+    tire_pressure_kpa: float | None = None
+    # None on a single tyre - there is no dual spacing to draw, which is not
+    # the same statement as a spacing of zero.
+    dual_spacing_m: float | None = None
+    # None on the first axle: nothing precedes it.
+    spacing_from_previous_m: float | None = None
+    position_u_m: float = 0.0
+    position_u_centred_m: float = 0.0
+    contact_area_m2: float = 0.0
+    axle_contact_area_m2: float = 0.0
+    contact_pressure_kpa: float = 0.0
+
+
+class VehicleContactOut(BaseModel):
+    """One contact patch, positioned in the travel frame.
+
+    ``label`` is byte-identical to the corresponding ``PatchOut.label``, so the
+    diagram can be cross-referenced against the analysis patches and the
+    per-term Boussinesq breakdown.
+    """
+
+    label: str = ""
+    axle_index: int = 0
+    side: str = ""
+    tyre_index: int = 1
+    u_m: float = 0.0
+    v_m: float = 0.0
+    length_u_m: float = 0.0
+    width_v_m: float = 0.0
+    load_kn: float = 0.0
+    pressure_kpa: float = 0.0
+
+
+class VehicleGeometryOut(BaseModel):
+    """The machine drawn in its own frame, for checking the input.
+
+    Absent (``None`` on the response) for custom rectangle loads, which are not
+    a vehicle.
+    """
+
+    frame: str = "travel"
+    travel_axis_note: str = ""
+    orientation: str = ""
+    plan_mapping: str = ""
+    load_type: str = ""
+    is_tracked: bool = False
+    contact_noun: str = "tyre"
+    axle_count: int = 0
+    wheelbase_m: float = 0.0
+    gauge_m: float = 0.0
+    overall_width_m: float = 0.0
+    overall_length_m: float = 0.0
+    total_load_kn: float = 0.0
+    contact_patch_count: int = 0
+    total_contact_area_m2: float = 0.0
+    mean_contact_pressure_kpa: float = 0.0
+    axles: list[VehicleAxleOut] = Field(default_factory=list)
+    contacts: list[VehicleContactOut] = Field(default_factory=list)
+
+
 class VehicleResultOut(BaseModel):
     ok: bool = True
     error: str = ""
@@ -246,6 +345,14 @@ class VehicleResultOut(BaseModel):
     live_pressure_kpa: float = 0.0
     worst_offset_m: float = 0.0
     worst_offset_pressure_kpa: float = 0.0
+    axle_count: int = 0
+    axle_width_m: float = 0.0
+    wheelbase_m: float = 0.0
+    dimensions_summary: str = ""
+    critical_axle: str = ""
+    critical_axle_contribution_kpa: float = 0.0
+    axles: list[AxleDetailOut] = Field(default_factory=list)
+
 
 
 class VehicleComparisonResponseOut(BaseModel):
@@ -280,6 +387,9 @@ class SurchargeResponseOut(BaseModel):
 
     patches: list[PatchOut] = Field(default_factory=list)
     points: list[PointOut] = Field(default_factory=list)
+    axles: list[AxleDetailOut] = Field(default_factory=list)
+    # None for custom rectangle loads, which are not a vehicle.
+    vehicle: VehicleGeometryOut | None = None
     depth_profile: list[dict[str, float]] = Field(default_factory=list)
     offset_profile: list[ProfilePointOut] = Field(default_factory=list)
     bulb: BulbOut = Field(default_factory=BulbOut)
@@ -287,3 +397,83 @@ class SurchargeResponseOut(BaseModel):
     orientations: list[OrientationComparisonOut] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     report_html: str = ""
+
+
+class SoilExportIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    payload: SurchargeRequestIn
+
+
+class SoilExportOut(BaseModel):
+    ok: bool = True
+    error: str = ""
+    # Repo-relative so the path can be handed straight to an agent working in
+    # this workspace; absolute paths mean nothing to it.
+    json_path: str = ""
+    markdown_path: str = ""
+    markdown: str = ""
+    data: dict = Field(default_factory=dict)
+
+
+class SoilProjectIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    payload: SurchargeRequestIn
+
+
+class SoilProjectSummary(BaseModel):
+    id: str
+    name: str
+    saved_at: str
+    member: str
+    load_type: str
+    cover: str
+
+
+class SoilProjectOut(SoilProjectSummary):
+    payload: SurchargeRequestIn
+
+
+class AxleConfigIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    truck_axles: list[AxleSpecIn] = Field(min_length=1)
+    truck_axle_width: LengthInput = "1.8 m"
+
+
+class AxleConfigSummary(BaseModel):
+    id: str
+    name: str
+    saved_at: str
+    axle_count: int
+    total_load_kn: float
+
+
+class AxleConfigOut(AxleConfigSummary):
+    truck_axles: list[AxleSpecIn]
+    truck_axle_width: LengthInput
+
+
+class SavedVehicleIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    load_type: Literal["tracked", "wheels", "truck"]
+    tracked: TrackedMachineIn | None = None
+    wheels: WheelGroupIn | None = None
+    truck_axles: list[AxleSpecIn] = Field(default_factory=list)
+    truck_axle_width: LengthInput = "1.8 m"
+
+
+class SavedVehicleSummary(BaseModel):
+    id: str
+    name: str
+    saved_at: str
+    load_type: str
+    total_load_kn: float
+
+
+class SavedVehicleOut(SavedVehicleSummary):
+    load_type: Literal["tracked", "wheels", "truck"]
+    tracked: TrackedMachineIn | None = None
+    wheels: WheelGroupIn | None = None
+    truck_axles: list[AxleSpecIn] = Field(default_factory=list)
+    truck_axle_width: LengthInput = "1.8 m"
+
+
