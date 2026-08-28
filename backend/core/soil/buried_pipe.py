@@ -277,22 +277,37 @@ def _superposition_terms(
 
 
 def _spread_terms(
-    load: LoadModel, depth_m: float, spread_factor: float, dla: float
+    load: LoadModel,
+    depth_m: float,
+    spread_factor: float,
+    dla: float,
+    at_x_m: float | None = None,
+    at_y_m: float | None = None,
 ) -> list[TermTrace]:
-    """The merged spread areas a load-spread method ends up with."""
+    """The merged spread areas and their contributions at the point of interest."""
     boxes = _spread_boxes(load, depth_m, spread_factor)
     terms = []
     for i, box in enumerate(boxes, start=1):
         width = box["x1"] - box["x0"]
         length = box["y1"] - box["y0"]
         area = width * length
+        inside = (
+            at_x_m is not None and at_y_m is not None
+            and box["x0"] <= at_x_m <= box["x1"] and box["y0"] <= at_y_m <= box["y1"]
+        )
+        if at_x_m is None or at_y_m is None:
+            val = box["load"] / area
+            status = ""
+        else:
+            val = (box["load"] / area) if inside else 0.0
+            status = "; point falls inside" if inside else "; point falls outside - no contribution"
         terms.append(TermTrace(
             label=f"spread area {i}" if len(boxes) > 1 else "spread area",
             detail=(
                 f"{box['load']:.2f} kN over {width:.3f} x {length:.3f} m "
-                f"= {area:.3f} m^2 (grown by {spread_factor:g} x {depth_m:.3f} m)"
+                f"= {area:.3f} m^2 (grown by {spread_factor:g} x {depth_m:.3f} m){status}"
             ),
-            value_kpa=round(box["load"] / area * dla, 4),
+            value_kpa=round(val * dla, 4),
         ))
     return terms
 
@@ -445,16 +460,57 @@ def _spread_boxes(
 
 
 def _spread_pressure_kpa(
-    load: LoadModel, depth_m: float, spread_factor: float
+    load: LoadModel,
+    depth_m: float,
+    spread_factor: float,
+    at_x_m: float | None = None,
+    at_y_m: float | None = None,
 ) -> float:
-    """The governing (largest) spread pressure at this depth."""
+    """The governing (largest) merged spread pressure reaching the point of interest.
+
+    If at_x_m and at_y_m are provided, only merged boxes whose spread footprints
+    cover (at_x_m, at_y_m) contribute pressure (returns 0.0 if the point lies outside
+    all spread footprints). If omitted, returns the maximum nominal pressure across all boxes.
+    """
     boxes = _spread_boxes(load, depth_m, spread_factor)
     if not boxes:
         return 0.0
-    return max(
+    if at_x_m is None or at_y_m is None:
+        return max(
+            box["load"] / ((box["x1"] - box["x0"]) * (box["y1"] - box["y0"]))
+            for box in boxes
+        )
+    pressures = [
         box["load"] / ((box["x1"] - box["x0"]) * (box["y1"] - box["y0"]))
         for box in boxes
-    )
+        if box["x0"] <= at_x_m <= box["x1"] and box["y0"] <= at_y_m <= box["y1"]
+    ]
+    return max(pressures, default=0.0)
+
+
+def _spread_field_kpa(
+    load: LoadModel,
+    at_x_m: np.ndarray,
+    at_y_m: np.ndarray,
+    depth_m: float,
+    spread_factor: float,
+) -> np.ndarray:
+    """Grid version of merged load spread for sweeps and profiles."""
+    xs = np.atleast_1d(np.asarray(at_x_m, dtype=float))
+    ys = np.atleast_1d(np.asarray(at_y_m, dtype=float))
+    out = np.zeros((xs.size, ys.size), dtype=float)
+    boxes = _spread_boxes(load, depth_m, spread_factor)
+    for box in boxes:
+        width = box["x1"] - box["x0"]
+        length = box["y1"] - box["y0"]
+        area = width * length
+        q = box["load"] / area
+        inside = (
+            (xs[:, None] >= box["x0"]) & (xs[:, None] <= box["x1"])
+            & (ys[None, :] >= box["y0"]) & (ys[None, :] <= box["y1"])
+        )
+        out = np.maximum(out, np.where(inside, q, 0.0))
+    return out
 
 
 def analyse(req: PipeSurchargeRequest) -> PipeSurchargeResult:
@@ -528,14 +584,16 @@ def analyse(req: PipeSurchargeRequest) -> PipeSurchargeResult:
                 "westergaard": round(float(westergaard_field_kpa(
                     load, at, ys, depth, req.poisson_ratio,
                     _WESTERGAARD_PROFILE_SUBDIVISIONS).max()) * req.dla, 4),
-                "spread_2to1": round(
-                    _spread_pressure_kpa(load, depth, 1.0) * req.dla, 4),
+                "spread_2to1": round(float(
+                    _spread_field_kpa(load, at, ys, depth, 1.0).max()) * req.dla, 4),
                 "spread_superposed": round(float(_spread_superposed_field_kpa(
-                    load, np.array([x_eval]), ys, depth, 1.0).max()) * req.dla, 4),
+                    load, at, ys, depth, 1.0).max()) * req.dla, 4),
             }
             if req.spread_factor > 0:
-                row["code_spread"] = round(
-                    _spread_pressure_kpa(load, depth, req.spread_factor) * req.dla, 4)
+                row["code_spread"] = round(float(
+                    _spread_field_kpa(load, at, ys, depth, req.spread_factor).max()) * req.dla, 4)
+                row["code_spread_superposed"] = round(float(
+                    _spread_superposed_field_kpa(load, at, ys, depth, req.spread_factor).max()) * req.dla, 4)
             depth_profile.append(row)
 
         bulb = _pressure_bulb(load, req, x_eval, y_worst, half_x)
@@ -558,8 +616,8 @@ def analyse(req: PipeSurchargeRequest) -> PipeSurchargeResult:
     west_kpa = float(westergaard_field_kpa(
         load, np.array([x_eval]), y_samples, z, req.poisson_ratio).max()) * req.dla
 
-    two_to_one_kpa = _spread_pressure_kpa(load, z, 1.0) * req.dla
-    two_to_one_terms = _spread_terms(load, z, 1.0, req.dla)
+    two_to_one_kpa = _spread_pressure_kpa(load, z, 1.0, x_eval, y_worst) * req.dla
+    two_to_one_terms = _spread_terms(load, z, 1.0, req.dla, x_eval, y_worst)
 
     methods = [
         MethodResult(
@@ -611,9 +669,9 @@ def analyse(req: PipeSurchargeRequest) -> PipeSurchargeResult:
         ),
         MethodResult(
             key="spread_2to1",
-            name="2:1 load spread",
+            name="2:1 load spread (merged)",
             pressure_kpa=two_to_one_kpa,
-            basis="Contact area grown by z/2 on each side; total load spread evenly over it.",
+            basis="Contact area grown by z/2 on each side; overlapping spread areas merged.",
             verified=True,
             note=(
                 "A bookkeeping rule that conserves load but has no theoretical "
@@ -621,8 +679,9 @@ def analyse(req: PipeSurchargeRequest) -> PipeSurchargeResult:
             ),
             formula=SPREAD_FORMULA,
             substitution=(
-                f"f = 1.0, z = {z:.3f} m; largest of {len(two_to_one_terms)} merged "
-                f"area(s), x DLA {req.dla:.2f}  =  {two_to_one_kpa:.2f} kPa"
+                f"f = 1.0, z = {z:.3f} m; merged spread footprint at "
+                f"x = {x_eval:.3f} m, y = {y_worst:.3f} m, "
+                f"x DLA {req.dla:.2f}  =  {two_to_one_kpa:.2f} kPa"
             ),
             terms=two_to_one_terms,
             terms_sum_to_total=False,
@@ -657,11 +716,11 @@ def analyse(req: PipeSurchargeRequest) -> PipeSurchargeResult:
     ))
 
     if req.spread_factor > 0:
-        code_kpa = _spread_pressure_kpa(load, z, req.spread_factor) * req.dla
-        code_terms = _spread_terms(load, z, req.spread_factor, req.dla)
+        code_kpa = _spread_pressure_kpa(load, z, req.spread_factor, x_eval, y_worst) * req.dla
+        code_terms = _spread_terms(load, z, req.spread_factor, req.dla, x_eval, y_worst)
         methods.append(MethodResult(
             key="code_spread",
-            name=f"Code load spread (LLDF = {req.spread_factor:g})",
+            name=f"Code load spread (LLDF = {req.spread_factor:g}, merged)",
             pressure_kpa=code_kpa,
             basis=(
                 f"Contact area grown by {req.spread_factor:g} x depth in each plan "
@@ -671,12 +730,36 @@ def analyse(req: PipeSurchargeRequest) -> PipeSurchargeResult:
             note=req.spread_factor_source,
             formula=SPREAD_FORMULA,
             substitution=(
-                f"f = {req.spread_factor:g}, z = {z:.3f} m; largest of "
-                f"{len(code_terms)} merged area(s), x DLA {req.dla:.2f}  =  "
-                f"{code_kpa:.2f} kPa"
+                f"f = {req.spread_factor:g}, z = {z:.3f} m; merged spread footprint at "
+                f"x = {x_eval:.3f} m, y = {y_worst:.3f} m, "
+                f"x DLA {req.dla:.2f}  =  {code_kpa:.2f} kPa"
             ),
             terms=code_terms,
             terms_sum_to_total=False,
+        ))
+
+        code_sup_kpa = _spread_superposed_kpa(load, x_eval, y_worst, z, req.spread_factor) * req.dla
+        code_sup_terms = _spread_superposed_terms(load, x_eval, y_worst, z, req.spread_factor, req.dla)
+        methods.append(MethodResult(
+            key="code_spread_superposed",
+            name=f"Code load spread (LLDF = {req.spread_factor:g}, individual summed)",
+            pressure_kpa=code_sup_kpa,
+            basis=(
+                f"Each tyre or track's own footprint grown by {req.spread_factor:g} x depth independently; "
+                "footprints that reach the point of interest are added together rather than merged."
+            ),
+            verified=req.spread_factor_verified,
+            note=(
+                f"Individual tyre/track spread with user-specified factor f = {req.spread_factor:g}."
+            ),
+            formula=SPREAD_SUPERPOSED_FORMULA,
+            substitution=(
+                f"f = {req.spread_factor:g}, z = {z:.3f} m; sum of contributions from footprints "
+                f"reaching x = {x_eval:.3f} m, y = {y_worst:.3f} m, "
+                f"x DLA {req.dla:.2f}  =  {code_sup_kpa:.2f} kPa"
+            ),
+            terms=code_sup_terms,
+            terms_sum_to_total=True,
         ))
 
     soil_pressure = req.soil_unit_weight_kn_m3 * z

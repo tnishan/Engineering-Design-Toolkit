@@ -144,10 +144,11 @@ export default function Diagrams({ diagrams, supportsAtMm, spanLimits }: Props) 
             label={{ value: yLabel, angle: -90, position: "insideLeft", style: AXIS }}
           />
           <Tooltip
-            formatter={(v: number, n: string) => [v.toFixed(3), n]}
-            labelFormatter={(v: number) => `x = ${Number(v).toFixed(3)} m`}
+            formatter={(v: any, n: any) => [Number(v ?? 0).toFixed(3), String(n)]}
+            labelFormatter={(v: any) => `x = ${Number(v ?? 0).toFixed(3)} m`}
             contentStyle={{ fontSize: 12 }}
           />
+
           <Legend verticalAlign="top" height={22} wrapperStyle={{ fontSize: 11.5 }} />
           <ReferenceLine y={0} stroke="#8a919b" strokeWidth={1.4} />
           {supports.map((x) => (

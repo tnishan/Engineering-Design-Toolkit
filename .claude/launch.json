@@ -9,6 +9,14 @@
       "port": 8010
     },
     {
+      "comment": "Second instance for in-editor verification, so checking a change never has to kill the server start.bat put on 8010.",
+      "name": "backend-dev",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8011", "--reload"],
+      "cwd": "backend",
+      "port": 8011
+    },
+    {
       "name": "frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],

@@ -42,21 +42,17 @@ export default function VehicleComparison({
     const out: { key: string; label: string; spec: VehicleSpec }[] = [
       { key: "current", label: "Current configuration (from the form)", spec: currentVehicle },
     ];
-    for (const t of presets?.trucks ?? []) {
+    for (const v of presets?.vehicles ?? []) {
       out.push({
-        key: t.key, label: t.name,
+        key: v.key,
+        label: `${v.name} (${v.total_load_kn.toFixed(0)} kN)`,
         spec: {
-          label: t.name, load_type: "truck", preset_key: t.key, orientation,
-          truck_axles: [], truck_axle_width: "1.8 m",
-        },
-      });
-    }
-    for (const t of presets?.tracked ?? []) {
-      out.push({
-        key: t.key, label: t.name,
-        spec: {
-          label: t.name, load_type: "tracked", preset_key: t.key, orientation,
-          truck_axles: [], truck_axle_width: "1.8 m",
+          label: v.name,
+          load_type: "truck",
+          preset_key: v.key,
+          orientation,
+          truck_axles: [],
+          truck_axle_width: "1.8 m",
         },
       });
     }
@@ -128,35 +124,158 @@ export default function VehicleComparison({
       {error && <div className="err" style={{ marginTop: 10 }}>{error}</div>}
 
       {sorted && (
-        <table style={{ marginTop: 10 }}>
-          <thead>
-            <tr>
-              <th>Vehicle</th><th className="num">Total load</th>
-              <th className="num">Worst crown stress</th><th style={{ width: 110 }}>Relative</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((r, i) => (
-              <tr key={i}>
-                <td>
-                  {r.ok ? <b>{r.label}</b> : <span className="fail">{r.label} — {r.error}</span>}
-                  {r.ok && <div className="muted" style={{ fontSize: 11 }}>{r.description}</div>}
-                </td>
-                <td className="num">{r.ok ? `${r.total_load_kn.toFixed(0)} kN` : "—"}</td>
-                <td className="num">
-                  {r.ok ? <b>{r.worst_offset_pressure_kpa.toFixed(1)} kPa</b> : "—"}
-                </td>
-                <td>
-                  {r.ok && (
-                    <div className="bar">
-                      <i style={{ width: `${peak ? (r.worst_offset_pressure_kpa / peak) * 100 : 0}%` }} />
-                    </div>
-                  )}
-                </td>
+        <div style={{ marginTop: 14 }}>
+          {/* Top Governing Plant Callout */}
+          {sorted[0]?.ok && (
+            <div style={{
+              background: "#f0fdf4",
+              border: "1px solid #86efac",
+              borderRadius: 6,
+              padding: "10px 14px",
+              marginBottom: 14,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 8,
+            }}>
+              <div>
+                <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "#166534", letterSpacing: 0.5 }}>
+                  Governing Plant on Site
+                </span>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#14532d", marginTop: 2 }}>
+                  {sorted[0].label} — {sorted[0].worst_offset_pressure_kpa.toFixed(1)} kPa peak crown stress
+                </div>
+                <div style={{ fontSize: 12, color: "#166534", marginTop: 2 }}>
+                  Critical axis: <b>{sorted[0].critical_axle || "Governing axle"}</b> {sorted[0].critical_axle_contribution_kpa ? `(${sorted[0].critical_axle_contribution_kpa.toFixed(1)} kPa contribution)` : ""} at {sorted[0].worst_offset_m >= 0 ? "+" : ""}{sorted[0].worst_offset_m.toFixed(2)} m offset
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#15803d" }}>
+                  {sorted[0].worst_offset_pressure_kpa.toFixed(1)} kPa
+                </div>
+                <div style={{ fontSize: 11, color: "#166534" }}>
+                  {sorted[0].total_load_kn.toFixed(0)} kN total load
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Detailed Configuration & Governing Axis Table */}
+          <h3 style={{ fontSize: 13, marginBottom: 6, color: "#334155" }}>
+            Plant Dimensions, Axle Layout & Critical Load Axis
+          </h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Vehicle & Configuration</th>
+                <th>Tires / Tracks & Gauge</th>
+                <th className="num">Total Load</th>
+                <th>Critical Governing Axle</th>
+                <th className="num">Worst Stress</th>
+                <th style={{ width: 90 }}>Relative</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sorted.map((r, i) => (
+                <tr key={i} style={i === 0 ? { background: "#f8fafc" } : undefined}>
+                  <td>
+                    {r.ok ? (
+                      <>
+                        <b style={{ color: i === 0 ? "#1e40af" : "inherit" }}>{r.label}</b>
+                        <div className="muted" style={{ fontSize: 11 }}>
+                          {r.orientation === "across" ? "Crossing pipe (transverse)" : "Tracking along pipe (parallel)"}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="fail">{r.label} — {r.error}</span>
+                    )}
+                  </td>
+                  <td>
+                    {r.ok ? (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 500 }}>
+                          {r.dimensions_summary || `${r.axle_count || 1} axle(s)`}
+                        </div>
+                        {r.axle_width_m ? (
+                          <div className="muted" style={{ fontSize: 11 }}>
+                            Track gauge: {r.axle_width_m.toFixed(2)} m
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : "—"}
+                  </td>
+                  <td className="num">
+                    {r.ok ? <b>{r.total_load_kn.toFixed(0)} kN</b> : "—"}
+                  </td>
+                  <td>
+                    {r.ok ? (
+                      <div>
+                        <b style={{ color: "#b91c1c" }}>{r.critical_axle || "Combined"}</b>
+                        {r.critical_axle_contribution_kpa ? (
+                          <div className="muted" style={{ fontSize: 11 }}>
+                            {r.critical_axle_contribution_kpa.toFixed(1)} kPa peak
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : "—"}
+                  </td>
+                  <td className="num">
+                    {r.ok ? (
+                      <div>
+                        <b style={{ fontSize: 13 }}>{r.worst_offset_pressure_kpa.toFixed(1)} kPa</b>
+                        <div className="muted" style={{ fontSize: 11 }}>
+                          @ {r.worst_offset_m >= 0 ? "+" : ""}{r.worst_offset_m.toFixed(2)} m
+                        </div>
+                      </div>
+                    ) : "—"}
+                  </td>
+                  <td>
+                    {r.ok && (
+                      <div className="bar" title={`${peak ? ((r.worst_offset_pressure_kpa / peak) * 100).toFixed(0) : 0}% of governing`}>
+                        <i style={{
+                          width: `${peak ? (r.worst_offset_pressure_kpa / peak) * 100 : 0}%`,
+                          background: i === 0 ? "#dc2626" : "var(--accent)",
+                        }} />
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* Per-axle/tyre loads and dimensions for every vehicle compared. */}
+          {sorted.filter((r) => r.ok && r.axles?.length).map((r, i) => (
+            <details className="check-detail" key={i}>
+              <summary>{r.label} — tyre/track loads and dimensions ({r.axles!.length} axle line{r.axles!.length > 1 ? "s" : ""})</summary>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Axle line</th>
+                    <th className="num">Load</th>
+                    <th className="num">Tyres/side</th>
+                    <th className="num">Width</th>
+                    <th className="num">Contact length</th>
+                    <th className="num">Spacing from previous</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.axles!.map((a, j) => (
+                    <tr key={j}>
+                      <td>{a.label}</td>
+                      <td className="num">{a.load_kn.toFixed(1)} kN</td>
+                      <td className="num">{a.tires_per_side}</td>
+                      <td className="num">{(a.width_m * 1000).toFixed(0)} mm</td>
+                      <td className="num">{(a.length_m * 1000).toFixed(0)} mm</td>
+                      <td className="num">{j === 0 ? "—" : `${a.spacing_m.toFixed(2)} m`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          ))}
+        </div>
       )}
     </div>
   );

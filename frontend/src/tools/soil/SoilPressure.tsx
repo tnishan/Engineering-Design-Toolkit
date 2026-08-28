@@ -1,54 +1,55 @@
 import { useEffect, useState } from "react";
 import {
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
-  Legend,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import { listVehiclePresets, pipeSurcharge } from "../../api/client";
+import {
+  deleteSavedVehicle,
+  deleteSoilProject,
+  listSavedVehicles,
+  listSoilProjects,
+  listVehiclePresets,
+  loadSavedVehicle,
+  loadSoilProject,
+  pipeSurcharge,
+  saveSavedVehicle,
+  saveSoilProject,
+} from "../../api/client";
 import type {
   Orientation,
-  SoilLoadType,
+  SavedVehicleSummary,
+  SoilProjectSummary,
   SurchargeRequest,
   SurchargeResponse,
   VehiclePresets,
   VehicleSpec,
 } from "../../api/types";
-import AxleEditor, { axleRowsToRequest, blankAxleRow, type AxleRow } from "./AxleEditor";
+import AxleEditor, { axleRowsToRequest, axleSpecsToRows, blankAxleRow, type AxleRow } from "./AxleEditor";
 import Iso3D from "./Iso3D";
+import MethodDiagram from "./MethodDiagrams";
 import PressureBulb from "./PressureBulb";
 import SiteDrawing from "./SiteDrawing";
+import SoilProjectBar from "./SoilProjectBar";
 import VehicleComparison from "./VehicleComparison";
+import VehicleDiagram from "./VehicleDiagram";
 
 interface Form {
   project: string;
   member: string;
   engineer: string;
-  loadType: SoilLoadType;
   orientation: Orientation;
-  // tracked
-  weightKn: number;
-  trackLength: string;
-  trackWidth: string;
-  gauge: string;
-  // wheels
-  wheelLoadKn: number;
-  patchAlong: string;
-  patchAcross: string;
-  axleWidth: string;
-  dualSpacing: string;
-  axleCount: number;
-  axleSpacing: string;
-  // truck / multi-axle
+  // unified axle-based vehicle model
   truckAxles: AxleRow[];
   truckAxleWidth: string;
-  truckPreset: string;
+  vehiclePreset: string;
   // pipe / ground
   cover: string;
   pipeOd: string;
@@ -65,22 +66,19 @@ const INITIAL: Form = {
   project: "",
   member: "Pipe crossing",
   engineer: "",
-  loadType: "tracked",
   orientation: "across",
-  weightKn: 200,
-  trackLength: "3.2 m",
-  trackWidth: "600",
-  gauge: "2.2 m",
-  wheelLoadKn: 70,
-  patchAlong: "250",
-  patchAcross: "510",
-  axleWidth: "1.8 m",
-  dualSpacing: "350",
-  axleCount: 2,
-  axleSpacing: "1.2 m",
-  truckAxles: [blankAxleRow(1)],
-  truckAxleWidth: "1.8 m",
-  truckPreset: "custom",
+  truckAxles: [{
+    label: "Tracks",
+    loadKn: 220,
+    tiresPerSide: 1 as 1 | 2,
+    tireWidth: "762 mm",
+    tireLength: "4470 mm",
+    tirePressureKpa: "",
+    dualSpacing: "0",
+    spacingFromPrevious: "0",
+  }],
+  truckAxleWidth: "2.41 m",
+  vehiclePreset: "cat_320",
   cover: "1.0 m",
   pipeOd: "600",
   offset: "0",
@@ -94,23 +92,10 @@ const INITIAL: Form = {
 
 function toRequest(f: Form): SurchargeRequest {
   return {
-    load_type: f.loadType,
-    tracked: f.loadType === "tracked" ? {
-      weight_kn: f.weightKn,
-      track_length: f.trackLength,
-      track_width: f.trackWidth,
-      gauge: f.gauge,
-    } : null,
-    wheels: f.loadType === "wheels" ? {
-      wheel_load_kn: f.wheelLoadKn,
-      patch_along_travel: f.patchAlong,
-      patch_across_travel: f.patchAcross,
-      axle_width: f.axleWidth,
-      dual_spacing: f.dualSpacing,
-      axle_count: f.axleCount,
-      axle_spacing: f.axleSpacing,
-    } : null,
-    truck_axles: f.loadType === "truck" ? axleRowsToRequest(f.truckAxles) : [],
+    load_type: "truck",
+    tracked: null,
+    wheels: null,
+    truck_axles: axleRowsToRequest(f.truckAxles),
     truck_axle_width: f.truckAxleWidth,
     custom_patches: [],
     custom_points: [],
@@ -127,13 +112,17 @@ function toRequest(f: Form): SurchargeRequest {
     project: f.project,
     member: f.member,
     engineer: f.engineer,
+    // Carries the preset's provenance (source, verified, assumptions) to the
+    // server. The axle figures alone arrive as bare numbers, so without this
+    // neither the report nor the export can say where they came from or that
+    // they are an unconfirmed transcription. "custom" and saved user vehicles
+    // are not built-in presets, so they claim no provenance.
+    vehicle_preset_key:
+      f.vehiclePreset === "custom" || f.vehiclePreset.startsWith("user_")
+        ? "" : f.vehiclePreset,
   };
 }
 
-// The point-load idealisation is left out here on purpose: it is singular at
-// the surface and can run into the hundreds of kPa at shallow cover, which
-// squashes every other curve into an unreadable band at the bottom of the
-// chart. It still appears in the method comparison table above.
 const METHOD_SERIES = [
   { key: "boussinesq", label: "Boussinesq", colour: "#1f5fa8", dash: undefined },
   { key: "westergaard", label: "Westergaard", colour: "#0e8fa8", dash: "6 3" },
@@ -142,8 +131,7 @@ const METHOD_SERIES = [
   { key: "code_spread", label: "Code spread", colour: "#6b7280", dash: "2 3" },
 ];
 
-/** Convert a preset truck's axle list (metres/kN) into editable form rows. */
-function presetToAxleRows(preset: NonNullable<VehiclePresets["trucks"][number]>): AxleRow[] {
+function presetToAxleRows(preset: { axles: { label: string; load_kn: number; tires_per_side: number; tire_width_m: number; tire_length_m: number | null; tire_pressure_kpa: number | null; dual_spacing_m: number; spacing_from_previous_m: number }[] }): AxleRow[] {
   return preset.axles.map((a) => ({
     label: a.label,
     loadKn: a.load_kn,
@@ -156,34 +144,102 @@ function presetToAxleRows(preset: NonNullable<VehiclePresets["trucks"][number]>)
   }));
 }
 
+
 export default function SoilPressure() {
   const [form, setForm] = useState<Form>(INITIAL);
   const [result, setResult] = useState<SurchargeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [presets, setPresets] = useState<VehiclePresets | null>(null);
+  const [savedVehicles, setSavedVehicles] = useState<SavedVehicleSummary[]>([]);
   const [axleEditorOpen, setAxleEditorOpen] = useState(false);
+  const [saveVehicleModalOpen, setSaveVehicleModalOpen] = useState(false);
+  const [saveVehicleName, setSaveVehicleName] = useState("");
+
+  const [projects, setProjects] = useState<SoilProjectSummary[]>([]);
+  const [projectBusy, setProjectBusy] = useState(false);
 
   const set = (patch: Partial<Form>) => setForm({ ...form, ...patch });
 
-  useEffect(() => {
-    listVehiclePresets().then(setPresets).catch(() => setPresets(null));
-  }, []);
-
-  const applyTruckPreset = (key: string) => {
-    if (key === "custom") {
-      set({ truckPreset: key });
-      return;
-    }
-    const preset = presets?.trucks.find((t) => t.key === key);
-    if (!preset) return;
-    set({
-      truckPreset: key,
-      truckAxles: presetToAxleRows(preset),
-      truckAxleWidth: `${(preset.axle_width_m * 1000).toFixed(0)} mm`,
-    });
+  const refreshProjects = () => {
+    listSoilProjects().then(setProjects).catch(() => setProjects([]));
   };
 
-  // The analysis is a few milliseconds, so it just runs as you type.
+  const refreshSavedVehiclesList = () => {
+    listSavedVehicles().then(setSavedVehicles).catch(() => setSavedVehicles([]));
+  };
+
+  useEffect(() => {
+    listVehiclePresets().then(setPresets).catch(() => setPresets(null));
+    refreshProjects();
+    refreshSavedVehiclesList();
+  }, []);
+
+  const handleSelectVehiclePreset = async (key: string) => {
+    if (key === "custom") {
+      set({ vehiclePreset: "custom" });
+      return;
+    }
+
+    // Check built-in presets (unified — all have axles)
+    const builtinPreset = presets?.vehicles?.find((v) => v.key === key);
+    if (builtinPreset) {
+      set({
+        vehiclePreset: key,
+        truckAxles: presetToAxleRows(builtinPreset),
+        truckAxleWidth: `${(builtinPreset.axle_width_m * 1000).toFixed(0)} mm`,
+      });
+      return;
+    }
+
+    // Check user-saved vehicles from database
+    if (key.startsWith("user_")) {
+      const vid = key.replace(/^user_/, "");
+      try {
+        const sv = await loadSavedVehicle(vid);
+        set({
+          vehiclePreset: key,
+          truckAxles: sv.truck_axles && sv.truck_axles.length ? axleSpecsToRows(sv.truck_axles) : form.truckAxles,
+          truckAxleWidth: typeof sv.truck_axle_width === "number" ? `${sv.truck_axle_width}` : String(sv.truck_axle_width ?? form.truckAxleWidth),
+        });
+      } catch (e) {
+        alert(`Could not load saved vehicle: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+  };
+
+  const handleSaveCurrentVehicleToDb = async () => {
+    if (!saveVehicleName.trim()) return;
+    try {
+      const payload = {
+        load_type: "truck" as const,
+        tracked: null,
+        wheels: null,
+        truck_axles: axleRowsToRequest(form.truckAxles),
+        truck_axle_width: form.truckAxleWidth,
+      };
+      await saveSavedVehicle(saveVehicleName.trim(), payload);
+      refreshSavedVehiclesList();
+      setSaveVehicleModalOpen(false);
+      setSaveVehicleName("");
+    } catch (e) {
+      alert(`Could not save vehicle: ${e instanceof Error ? e.message : e}`);
+    }
+  };
+
+
+  const handleDeleteCurrentSavedVehicle = async () => {
+    if (!form.vehiclePreset.startsWith("user_")) return;
+    const vid = form.vehiclePreset.replace(/^user_/, "");
+    if (!confirm("Delete this custom vehicle from the database?")) return;
+    try {
+      await deleteSavedVehicle(vid);
+      refreshSavedVehiclesList();
+      set({ vehiclePreset: "custom" });
+    } catch (e) {
+      alert(`Could not delete vehicle: ${e instanceof Error ? e.message : e}`);
+    }
+  };
+
   useEffect(() => {
     const id = setTimeout(() => {
       pipeSurcharge(toRequest(form))
@@ -206,42 +262,167 @@ export default function SoilPressure() {
     window.open(URL.createObjectURL(blob), "_blank");
   };
 
-  const currentVehicleSpec: VehicleSpec = form.loadType === "custom"
-    ? {
-        // Custom rectangles have no reusable "vehicle" shape for comparison;
-        // fall back to a zero-axle truck so the request is at least well-formed
-        // and the comparison endpoint reports a clear per-vehicle error.
-        label: "Current configuration", load_type: "truck", orientation: form.orientation,
-        truck_axles: [], truck_axle_width: form.truckAxleWidth,
-      }
-    : {
-        label: "Current configuration",
-        load_type: form.loadType,
-        orientation: form.orientation,
-        tracked: form.loadType === "tracked" ? {
-          weight_kn: form.weightKn, track_length: form.trackLength,
-          track_width: form.trackWidth, gauge: form.gauge,
-        } : null,
-        wheels: form.loadType === "wheels" ? {
-          wheel_load_kn: form.wheelLoadKn, patch_along_travel: form.patchAlong,
-          patch_across_travel: form.patchAcross, axle_width: form.axleWidth,
-          dual_spacing: form.dualSpacing, axle_count: form.axleCount,
-          axle_spacing: form.axleSpacing,
-        } : null,
-        truck_axles: form.loadType === "truck" ? axleRowsToRequest(form.truckAxles) : [],
-        truck_axle_width: form.truckAxleWidth,
+  const handleSaveProject = async (name: string) => {
+    setProjectBusy(true);
+    try {
+      set({ project: name });
+      const req = toRequest({ ...form, project: name });
+      await saveSoilProject(name, req);
+      refreshProjects();
+    } catch (e) {
+      alert(`Could not save project: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setProjectBusy(false);
+    }
+  };
+
+  const extractAxleConfig = (p: any): { axles: AxleRow[]; axleWidth: string } => {
+    if (p.truck_axles && p.truck_axles.length > 0) {
+      return {
+        axles: axleSpecsToRows(p.truck_axles),
+        axleWidth: typeof p.truck_axle_width === "number" ? `${p.truck_axle_width} m` : String(p.truck_axle_width ?? "1.8 m"),
       };
+    }
+    if (p.tracked) {
+      return {
+        axles: [{
+          label: "Tracks",
+          loadKn: p.tracked.weight_kn,
+          tiresPerSide: 1,
+          tireWidth: typeof p.tracked.track_width === "number" ? `${p.tracked.track_width * 1000} mm` : String(p.tracked.track_width),
+          tireLength: typeof p.tracked.track_length === "number" ? `${p.tracked.track_length * 1000} mm` : String(p.tracked.track_length),
+          tirePressureKpa: "",
+          dualSpacing: "0",
+          spacingFromPrevious: "0",
+        }],
+        axleWidth: typeof p.tracked.gauge === "number" ? `${p.tracked.gauge} m` : String(p.tracked.gauge ?? "2.4 m"),
+      };
+    }
+    if (p.wheels) {
+      const w = p.wheels;
+      const count = w.axle_count || 1;
+      const dual = (typeof w.dual_spacing === "number" ? w.dual_spacing : Number.parseFloat(w.dual_spacing || "0")) > 0;
+      const tps = dual ? 2 : 1;
+      const loadPerAxle = w.wheel_load_kn * 2 * tps;
+      return {
+        axles: Array.from({ length: count }, (_, i) => ({
+          label: `Axle ${i + 1}`,
+          loadKn: loadPerAxle,
+          tiresPerSide: tps as 1 | 2,
+          tireWidth: typeof w.patch_across_travel === "number" ? `${w.patch_across_travel * 1000} mm` : String(w.patch_across_travel),
+          tireLength: typeof w.patch_along_travel === "number" ? `${w.patch_along_travel * 1000} mm` : String(w.patch_along_travel),
+          tirePressureKpa: "",
+          dualSpacing: typeof w.dual_spacing === "number" ? `${w.dual_spacing * 1000} mm` : String(w.dual_spacing || "0"),
+          spacingFromPrevious: i === 0 ? "0" : (typeof w.axle_spacing === "number" ? `${w.axle_spacing * 1000} mm` : String(w.axle_spacing || "1.2 m")),
+        })),
+        axleWidth: typeof w.axle_width === "number" ? `${w.axle_width} m` : String(w.axle_width ?? "1.8 m"),
+      };
+    }
+    return {
+      axles: [blankAxleRow(1)],
+      axleWidth: "1.8 m",
+    };
+  };
+
+  const handleLoadProject = async (id: string) => {
+    setProjectBusy(true);
+    try {
+      const proj = await loadSoilProject(id);
+      const p = proj.payload;
+      const { axles, axleWidth } = extractAxleConfig(p);
+      setForm({
+        project: p.project || proj.name,
+        member: p.member || "Pipe crossing",
+        engineer: p.engineer || "",
+        orientation: p.orientation || "across",
+        truckAxles: axles,
+        truckAxleWidth: axleWidth,
+        vehiclePreset: "custom",
+        cover: typeof p.cover === "number" ? `${p.cover}` : String(p.cover ?? "1.0 m"),
+        pipeOd: typeof p.pipe_od === "number" ? `${p.pipe_od}` : String(p.pipe_od ?? "600"),
+        offset: typeof p.machine_offset === "number" ? `${p.machine_offset}` : String(p.machine_offset ?? "0"),
+        unitWeight: p.soil_unit_weight_kn_m3 ?? 20,
+        poisson: p.poisson_ratio ?? 0,
+        dlaMode: p.dla_mode || "manual",
+        dla: p.dla ?? 1.3,
+        spreadPreset: p.spread_preset || "aashto_granular",
+        spreadFactor: p.spread_factor ?? 1.15,
+      });
+    } catch (e) {
+      alert(`Could not load project: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setProjectBusy(false);
+    }
+  };
+
+  const handleDeleteProject = async (id: string) => {
+    setProjectBusy(true);
+    try {
+      await deleteSoilProject(id);
+      refreshProjects();
+    } catch (e) {
+      alert(`Could not delete project: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setProjectBusy(false);
+    }
+  };
+
+  const handleImportProject = (payload: SurchargeRequest, name: string) => {
+    const { axles, axleWidth } = extractAxleConfig(payload);
+    setForm({
+      project: name || payload.project || "Imported Project",
+      member: payload.member || "Pipe crossing",
+      engineer: payload.engineer || "",
+      orientation: payload.orientation || "across",
+      truckAxles: axles,
+      truckAxleWidth: axleWidth,
+      vehiclePreset: "custom",
+      cover: typeof payload.cover === "number" ? `${payload.cover}` : String(payload.cover ?? "1.0 m"),
+      pipeOd: typeof payload.pipe_od === "number" ? `${payload.pipe_od}` : String(payload.pipe_od ?? "600"),
+      offset: typeof payload.machine_offset === "number" ? `${payload.machine_offset}` : String(payload.machine_offset ?? "0"),
+      unitWeight: payload.soil_unit_weight_kn_m3 ?? 20,
+      poisson: payload.poisson_ratio ?? 0,
+      dlaMode: payload.dla_mode || "manual",
+      dla: payload.dla ?? 1.3,
+      spreadPreset: payload.spread_preset || "aashto_granular",
+      spreadFactor: payload.spread_factor ?? 1.15,
+    });
+  };
+
+  const currentVehicleSpec: VehicleSpec = {
+    label: "Current configuration",
+    load_type: "truck",
+    orientation: form.orientation,
+    truck_axles: axleRowsToRequest(form.truckAxles),
+    truck_axle_width: form.truckAxleWidth,
+  };
 
   const depthData = result?.depth_profile ?? [];
   const offsetData = result?.offset_profile.map((p) => ({
     offset: p.offset_m, pressure: p.pressure_kpa,
   })) ?? [];
 
+  const totalAxleLoadKn = form.truckAxles.reduce((s, a) => s + (Number(a.loadKn) || 0), 0);
+
+  const excavatorPresets = (presets?.vehicles ?? []).filter((v) => v.category === "excavator");
+  const truckPresets = (presets?.vehicles ?? []).filter((v) => v.category !== "excavator");
+
   return (
     <div className="app">
       <div>
+        <SoilProjectBar
+          projects={projects}
+          currentName={form.project}
+          busy={projectBusy}
+          onSave={handleSaveProject}
+          onLoad={handleLoadProject}
+          onDelete={handleDeleteProject}
+          onImport={handleImportProject}
+          buildPayload={() => toRequest(form)}
+        />
+
         <div className="panel">
-          <h2>Project</h2>
+          <h2>Project metadata</h2>
           <label><span>Project</span>
             <input value={form.project} onChange={(e) => set({ project: e.target.value })} />
           </label>
@@ -256,121 +437,95 @@ export default function SoilPressure() {
         </div>
 
         <div className="panel">
-          <h2>Surface load</h2>
-          <div className="row" style={{ marginBottom: 10 }}>
-            <button type="button" className={form.loadType === "tracked" ? "seg on" : "seg"}
-                    onClick={() => set({ loadType: "tracked" })}>Tracked plant</button>
-            <button type="button" className={form.loadType === "wheels" ? "seg on" : "seg"}
-                    onClick={() => set({ loadType: "wheels" })}>Wheel loads</button>
-            <button type="button" className={form.loadType === "truck" ? "seg on" : "seg"}
-                    onClick={() => set({ loadType: "truck" })}>Truck (multi-axle)</button>
-          </div>
+          <h2>Surface load & Vehicle presets</h2>
 
-          {form.loadType === "truck" ? (
-            <>
-              <label><span>Vehicle</span>
-                <select value={form.truckPreset}
-                        onChange={(e) => applyTruckPreset(e.target.value)}>
-                  <option value="custom">Custom axle configuration</option>
-                  {(presets?.trucks ?? []).map((t) => (
-                    <option key={t.key} value={t.key}>
-                      {t.name}{!t.verified ? " (unverified transcription)" : ""}
+          {/* Unified Vehicle Preset Dropdown */}
+          <label><span>Vehicle / Equipment Database</span>
+            <select
+              value={form.vehiclePreset}
+              onChange={(e) => handleSelectVehiclePreset(e.target.value)}
+            >
+              {excavatorPresets.length > 0 && (
+                <optgroup label="Excavators & Tracked Plant (Single Axle / Dual Track)">
+                  {excavatorPresets.map((v) => (
+                    <option key={v.key} value={v.key}>
+                      {v.name} ({v.total_load_kn.toFixed(0)} kN)
                     </option>
                   ))}
-                </select>
-              </label>
-              <div className="row" style={{ alignItems: "center" }}>
-                <p className="muted" style={{ fontSize: 11.5, margin: 0 }}>
-                  {form.truckAxles.length} axle(s), {form.truckAxles.reduce((s, a) => s + a.loadKn, 0).toFixed(0)} kN
-                  total, {form.truckAxleWidth} track.
-                </p>
-                <button type="button" onClick={() => setAxleEditorOpen(true)}
-                        style={{ flex: 0, whiteSpace: "nowrap" }}>
-                  Edit axle configuration…
-                </button>
+                </optgroup>
+              )}
+              {truckPresets.length > 0 && (
+                <optgroup label="Trucks & Multi-Axle Vehicles">
+                  {truckPresets.map((v) => (
+                    <option key={v.key} value={v.key}>
+                      {v.name} ({v.axles.length} axles, {v.total_load_kn.toFixed(0)} kN)
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {savedVehicles.length > 0 && (
+                <optgroup label="User Saved Vehicles (Database)">
+                  {savedVehicles.map((sv) => (
+                    <option key={sv.id} value={`user_${sv.id}`}>
+                      {sv.name} ({sv.total_load_kn} kN total)
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              <option value="custom">Custom vehicle / manual axle configuration</option>
+            </select>
+          </label>
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                setSaveVehicleName(form.project || "Custom Vehicle");
+                setSaveVehicleModalOpen(true);
+              }}
+            >
+              + Save current vehicle layout to database...
+            </button>
+            {form.vehiclePreset.startsWith("user_") && (
+              <button type="button" className="link" onClick={handleDeleteCurrentSavedVehicle} style={{ color: "#c02020" }}>
+                Delete this vehicle
+              </button>
+            )}
+          </div>
+
+          <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: "#1e293b" }}>
+                  {form.truckAxles.length === 1 && form.truckAxles[0].label.toLowerCase().includes("track")
+                    ? "Tracked Machine (2 Tracks)"
+                    : `${form.truckAxles.length} Axle Line(s)`}
+                </div>
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+                  Total load: <b>{totalAxleLoadKn.toFixed(0)} kN</b> · Track / gauge width: <b>{form.truckAxleWidth}</b>
+                </div>
               </div>
-              {form.truckPreset !== "custom" && (() => {
-                const preset = presets?.trucks.find((t) => t.key === form.truckPreset);
-                return preset && !preset.verified ? (
-                  <div className="warn">
-                    <b>Unverified transcription.</b> {preset.source}
-                    {preset.assumptions.map((a, i) => <div key={i}>• {a}</div>)}
-                  </div>
-                ) : null;
-              })()}
-              <AxleEditor
-                open={axleEditorOpen}
-                axles={form.truckAxles}
-                axleWidth={form.truckAxleWidth}
-                onChange={(axles, axleWidth) => set({
-                  truckAxles: axles, truckAxleWidth: axleWidth, truckPreset: "custom",
-                })}
-                onClose={() => setAxleEditorOpen(false)}
-              />
-            </>
-          ) : form.loadType === "tracked" ? (
-            <>
-              <label><span>Operating weight (kN)</span>
-                <input type="number" step="1" value={form.weightKn}
-                       onChange={(e) => set({ weightKn: Number(e.target.value) })} />
-              </label>
-              <div className="row">
-                <label><span>Track contact length</span>
-                  <input value={form.trackLength}
-                         onChange={(e) => set({ trackLength: e.target.value })} />
-                </label>
-                <label><span>Shoe width</span>
-                  <input value={form.trackWidth}
-                         onChange={(e) => set({ trackWidth: e.target.value })} />
-                </label>
-                <label><span>Track gauge</span>
-                  <input value={form.gauge} onChange={(e) => set({ gauge: e.target.value })} />
-                </label>
-              </div>
-              <p className="muted" style={{ fontSize: 11.5 }}>
-                Take these from the machine's data sheet. Weight is split evenly between
-                the tracks — slewing the upper structure shifts load onto one side and is
-                not modelled.
-              </p>
-            </>
-          ) : (
-            <>
-              <div className="row">
-                <label><span>Load per tyre (kN)</span>
-                  <input type="number" step="1" value={form.wheelLoadKn}
-                         onChange={(e) => set({ wheelLoadKn: Number(e.target.value) })} />
-                </label>
-                <label><span>Axles</span>
-                  <input type="number" min={1} max={6} value={form.axleCount}
-                         onChange={(e) => set({ axleCount: Number(e.target.value) })} />
-                </label>
-              </div>
-              <div className="row">
-                <label><span>Patch across travel</span>
-                  <input value={form.patchAcross}
-                         onChange={(e) => set({ patchAcross: e.target.value })} />
-                </label>
-                <label><span>Patch along travel</span>
-                  <input value={form.patchAlong}
-                         onChange={(e) => set({ patchAlong: e.target.value })} />
-                </label>
-              </div>
-              <div className="row">
-                <label><span>Axle width</span>
-                  <input value={form.axleWidth}
-                         onChange={(e) => set({ axleWidth: e.target.value })} />
-                </label>
-                <label><span>Dual spacing (0 = single)</span>
-                  <input value={form.dualSpacing}
-                         onChange={(e) => set({ dualSpacing: e.target.value })} />
-                </label>
-                <label><span>Axle spacing</span>
-                  <input value={form.axleSpacing}
-                         onChange={(e) => set({ axleSpacing: e.target.value })} />
-                </label>
-              </div>
-            </>
-          )}
+              <button
+                type="button"
+                className="primary"
+                style={{ width: "auto", fontSize: 12, padding: "6px 12px" }}
+                onClick={() => setAxleEditorOpen(true)}
+              >
+                Edit axle & track details…
+              </button>
+            </div>
+          </div>
+
+          <AxleEditor
+            open={axleEditorOpen}
+            axles={form.truckAxles}
+            axleWidth={form.truckAxleWidth}
+            onChange={(axles, axleWidth) => set({
+              truckAxles: axles, truckAxleWidth: axleWidth, vehiclePreset: "custom",
+            })}
+            onClose={() => setAxleEditorOpen(false)}
+          />
 
           <label style={{ marginTop: 6 }}><span>Direction of travel</span>
             <select value={form.orientation}
@@ -380,10 +535,37 @@ export default function SoilPressure() {
             </select>
           </label>
           <p className="muted" style={{ fontSize: 11.5 }}>
-            This matters a lot. Crossing puts the long track axis over the pipe;
-            tracking along it can leave the pipe in the gap between the tracks.
+            Crossing puts the long track or wheelbase axis over the pipe;
+            tracking along it can leave the pipe in the gap between the tracks or wheels.
           </p>
         </div>
+
+
+        {/* Modal to Save Vehicle Layout to Database */}
+        {saveVehicleModalOpen && (
+          <div className="modal-backdrop" onClick={() => setSaveVehicleModalOpen(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+              <div className="modal-head">
+                <h2 style={{ margin: 0 }}>Save Vehicle to Database</h2>
+                <button type="button" className="link" onClick={() => setSaveVehicleModalOpen(false)}>✕</button>
+              </div>
+              <label>
+                <span>Vehicle Name / Model</span>
+                <input
+                  value={saveVehicleName}
+                  placeholder="e.g. CAT 330D Excavator or 50t Crane"
+                  onChange={(e) => setSaveVehicleName(e.target.value)}
+                />
+              </label>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 12 }}>
+                <button type="button" onClick={() => setSaveVehicleModalOpen(false)}>Cancel</button>
+                <button type="button" className="primary" style={{ width: "auto" }} onClick={handleSaveCurrentVehicleToDb}>
+                  Save Vehicle
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="panel">
           <h2>Pipe and ground</h2>
@@ -488,6 +670,24 @@ export default function SoilPressure() {
               </div>
             )}
 
+            {/* Ahead of every number it feeds: confirm the machine is right
+                before reading any pressure computed from it. */}
+            {result.vehicle && <VehicleDiagram vehicle={result.vehicle} />}
+
+            {/* Arrangement relative to the pipe (Section, Plan, and Schedule) */}
+            <SiteDrawing
+              patches={result.patches}
+              points={result.points}
+              coverM={result.cover_m}
+              pipeOdM={result.pipe_od_m}
+              offsetM={result.machine_offset_m}
+              worstOffsetM={result.worst_offset_m}
+              offsetIsWorst={result.offset_is_worst}
+              orientation={form.orientation}
+              vehicle={result.vehicle}
+              onOffsetChange={(m) => set({ offset: `${m >= 0 ? "+" : ""}${m.toFixed(2)} m` })}
+            />
+
             <div className="panel">
               <h2>Method comparison at crown level</h2>
               <table>
@@ -511,44 +711,58 @@ export default function SoilPressure() {
                 </tbody>
               </table>
 
-              <h3>Supporting calculations</h3>
+              <h3 style={{ marginTop: 18, marginBottom: 8 }}>Supporting calculations & Visual Diagrams</h3>
               {result.methods.map((m) => (
-                <details className="check-detail" key={m.key}>
-                  <summary>
+                <details className="check-detail" key={m.key} open={m.key === "boussinesq"}>
+                  <summary style={{ fontWeight: 600 }}>
                     {m.name} — {m.pressure_kpa.toFixed(1)} kPa
                   </summary>
-                  <div className="formula">{m.formula}</div>
+
+                  {/* SVG Method Diagram */}
+                  <MethodDiagram methodKey={m.key} coverM={result.cover_m} spreadFactor={form.spreadFactor} />
+
+                  <div style={{ marginTop: 8, marginBottom: 8, fontSize: 12 }}>
+                    <p style={{ margin: "4px 0" }}><b>Physical Basis:</b> {m.basis}</p>
+                    {m.note && <p style={{ margin: "4px 0", color: "#475569" }}><b>Note:</b> {m.note}</p>}
+                  </div>
+
+                  <div className="formula" style={{ whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: 12, background: "#f1f5f9", padding: "8px 12px", borderRadius: 4, margin: "8px 0" }}>
+                    {m.formula}
+                  </div>
+
                   <table>
                     <thead>
                       <tr>
-                        <th>{m.terms_sum_to_total ? "Contribution" : "Candidate area"}</th>
-                        <th>Working</th>
+                        <th>{m.terms_sum_to_total ? "Contribution / Patch" : "Candidate area"}</th>
+                        <th>Working & Parameters</th>
                         <th className="num">σ<sub>z</sub></th>
                       </tr>
                     </thead>
                     <tbody>
                       {m.terms.map((t, i) => (
                         <tr key={i}>
-                          <td>{t.label}</td>
+                          <td><b>{t.label}</b></td>
                           <td className="muted" style={{ fontSize: 11.5 }}>{t.detail}</td>
                           <td className="num">{t.value_kpa.toFixed(2)} kPa</td>
                         </tr>
                       ))}
-                      <tr>
+                      <tr style={{ background: "#f8fafc" }}>
                         <td colSpan={2}>
                           <b>{m.terms_sum_to_total
-                            ? "Sum of contributions"
-                            : "Governing (largest) area"}</b>
+                            ? "Sum of contributions (including DLA multiplier)"
+                            : "Governing (largest) pressure (including DLA multiplier)"}</b>
                         </td>
                         <td className="num"><b>{m.pressure_kpa.toFixed(2)} kPa</b></td>
                       </tr>
                     </tbody>
                   </table>
-                  <p className="muted" style={{ fontSize: 11.5 }}>{m.substitution}</p>
+                  <p className="muted" style={{ fontSize: 11.5, marginTop: 8, fontStyle: "italic" }}>
+                    <b>Step-by-step substitution:</b> {m.substitution}
+                  </p>
                 </details>
               ))}
 
-              <table style={{ marginTop: 10 }}>
+              <table style={{ marginTop: 16 }}>
                 <tbody>
                   <tr><th style={{ width: "48%" }}>Surface load</th>
                       <td className="muted">{result.load_description}</td></tr>
@@ -617,6 +831,7 @@ export default function SoilPressure() {
               offsetM={result.machine_offset_m}
               coverM={result.cover_m}
               pipeOdM={result.pipe_od_m}
+              orientation={form.orientation}
             />
 
             <PressureBulb
@@ -625,17 +840,6 @@ export default function SoilPressure() {
               offsetM={result.machine_offset_m}
               coverM={result.cover_m}
               pipeOdM={result.pipe_od_m}
-            />
-
-            <SiteDrawing
-              patches={result.patches}
-              points={result.points}
-              coverM={result.cover_m}
-              pipeOdM={result.pipe_od_m}
-              offsetM={result.machine_offset_m}
-              worstOffsetM={result.worst_offset_m}
-              offsetIsWorst={result.offset_is_worst}
-              orientation={form.orientation}
             />
 
             <div className="charts">
@@ -658,8 +862,8 @@ export default function SoilPressure() {
                     <YAxis width={68} tick={{ fontSize: 11 }}
                            label={{ value: "Vertical stress (kPa)", angle: -90,
                                     position: "insideLeft", style: { fontSize: 11 } }} />
-                    <Tooltip formatter={(v: number, n: string) => [`${v.toFixed(1)} kPa`, n]}
-                             labelFormatter={(v: number) => `${Number(v).toFixed(2)} m deep`}
+                    <Tooltip formatter={(v: any, n: any) => [`${Number(v ?? 0).toFixed(1)} kPa`, String(n)]}
+                             labelFormatter={(v: any) => `${Number(v ?? 0).toFixed(2)} m deep`}
                              contentStyle={{ fontSize: 12 }} />
                     <Legend verticalAlign="top" height={24}
                             wrapperStyle={{ fontSize: 11 }} />
@@ -696,9 +900,10 @@ export default function SoilPressure() {
                     <YAxis width={68} tick={{ fontSize: 11 }}
                            label={{ value: "Crown stress (kPa)", angle: -90,
                                     position: "insideLeft", style: { fontSize: 11 } }} />
-                    <Tooltip formatter={(v: number) => [`${v.toFixed(1)} kPa`, "Crown stress"]}
-                             labelFormatter={(v: number) => `offset ${Number(v).toFixed(2)} m`}
+                    <Tooltip formatter={(v: any) => [`${Number(v ?? 0).toFixed(1)} kPa`, "Crown stress"]}
+                             labelFormatter={(v: any) => `offset ${Number(v ?? 0).toFixed(2)} m`}
                              contentStyle={{ fontSize: 12 }} />
+
                     <Line type="monotone" dataKey="pressure" stroke="#1f5fa8" strokeWidth={2}
                           dot={false} isAnimationActive={false} />
                     <ReferenceDot x={result.worst_offset_m} y={result.worst_offset_pressure_kpa}

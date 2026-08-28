@@ -129,7 +129,8 @@ def test_analysis_reports_every_method():
     r = analyse(request_for(excavator()))
     keys = [m.key for m in r.methods]
     assert keys == ["boussinesq", "boussinesq_point", "westergaard",
-                    "spread_2to1", "spread_superposed", "code_spread"]
+                    "spread_2to1", "spread_superposed", "code_spread",
+                    "code_spread_superposed"]
     assert all(m.pressure_kpa > 0 for m in r.methods)
 
 

@@ -4,18 +4,42 @@ setlocal
 set "ROOT=%~dp0"
 set "ROOT=%ROOT:~0,-1%"
 
-echo Starting Engineering Design Toolkit...
+echo =======================================================
+echo Starting Engineering Design Toolkit
+echo =======================================================
 echo.
 
-REM --- Backend (FastAPI / uvicorn on port 8010) ---
-start "Beam Toolkit - Backend" cmd /k "cd /d "%ROOT%\backend" && .venv\Scripts\python.exe -m uvicorn api.main:app --host 127.0.0.1 --port 8010 --reload"
+REM Determine Python executable
+if exist "%ROOT%\backend\.venv\Scripts\python.exe" (
+    set "PYTHON=%ROOT%\backend\.venv\Scripts\python.exe"
+) else (
+    set "PYTHON=python"
+)
 
-REM --- Frontend (Vite dev server on port 5173) ---
-start "Beam Toolkit - Frontend" cmd /k "cd /d "%ROOT%\frontend" && npm run dev"
+REM Build frontend dist if not already built so FastAPI can serve the full website
+if not exist "%ROOT%\frontend\dist\index.html" (
+    echo Building frontend static website...
+    cd /d "%ROOT%\frontend" && call npm run build
+    cd /d "%ROOT%"
+)
 
-echo Waiting for the servers to come up...
-timeout /t 6 /nobreak >nul
+REM --- Launch Backend (FastAPI serving API & Web App on port 8010) ---
+echo Launching Web Server (http://localhost:8010)...
+start /B "Web Application" cmd /c "cd /d "%ROOT%\backend" && "%PYTHON%" -m uvicorn api.main:app --host 127.0.0.1 --port 8010 --reload"
 
-start "" "http://localhost:5173"
+echo.
+echo Waiting for web server to initialize...
+timeout /t 3 /nobreak >nul
 
+echo Opening website at http://localhost:8010...
+start "" "http://localhost:8010"
+
+echo.
+echo =======================================================
+echo  Web Application running at: http://localhost:8010
+echo  Press Ctrl+C or close this window to stop the server.
+echo =======================================================
+echo.
+
+pause >nul
 endlocal

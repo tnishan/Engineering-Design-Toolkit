@@ -471,9 +471,10 @@ export default function PostDesign({ seed, onSeedConsumed }: Props) {
                     <YAxis tick={{ fontSize: 11 }} width={68}
                            label={{ value: "Pr (kN)", angle: -90, position: "insideLeft",
                                     style: { fontSize: 11 } }} />
-                    <Tooltip formatter={(v: number) => [`${v.toFixed(1)} kN`, "Resistance"]}
-                             labelFormatter={(v: number) => `${Number(v).toFixed(2)} m`}
+                    <Tooltip formatter={(v: any) => [`${Number(v ?? 0).toFixed(1)} kN`, "Resistance"]}
+                             labelFormatter={(v: any) => `${Number(v ?? 0).toFixed(2)} m`}
                              contentStyle={{ fontSize: 12 }} />
+
                     <ReferenceLine y={result.demand_kn} stroke="#c02020" strokeDasharray="5 4"
                                    label={{ value: `demand ${result.demand_kn.toFixed(1)} kN`,
                                             position: "insideTopRight", fontSize: 11,
